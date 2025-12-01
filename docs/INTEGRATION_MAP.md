@@ -61,14 +61,85 @@ This document maps the integration points between all four repositories in the L
 
 ---
 
+## LLM Interaction Architecture (Critical)
+
+> ⚠️ **KEY DESIGN PRINCIPLE**: Only `llm-gateway` communicates directly with LLM providers (Anthropic, OpenAI, Ollama). All other services that need LLM capabilities MUST route through the gateway.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                           LLM INTERACTION ARCHITECTURE                               │
+├─────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                      │
+│   ┌─────────────────────────────────────────────────────────────────────────────┐   │
+│   │                        llm-document-enhancer                                 │   │
+│   │                                                                              │   │
+│   │   ❌ Does NOT call Anthropic/OpenAI directly                                │   │
+│   │   ✅ Calls llm-gateway for all LLM operations                               │   │
+│   │                                                                              │   │
+│   └────────────────────────────────────┬────────────────────────────────────────┘   │
+│                                        │                                            │
+│                                        ▼                                            │
+│   ┌─────────────────────────────────────────────────────────────────────────────┐   │
+│   │                           llm-gateway                                        │   │
+│   │                           (Port 8080)                                        │   │
+│   │                                                                              │   │
+│   │   ✅ THE ONLY SERVICE WITH LLM PROVIDER CREDENTIALS                         │   │
+│   │   ✅ Centralizes: rate limiting, caching, cost tracking, session mgmt       │   │
+│   │                                                                              │   │
+│   │                    │                     │                                   │   │
+│   │          ┌─────────┴─────────┐   ┌──────┴──────┐                            │   │
+│   │          ▼                   ▼   ▼            ▼                             │   │
+│   │   ┌───────────────┐  ┌───────────────┐  ┌───────────┐                       │   │
+│   │   │   Anthropic   │  │    OpenAI     │  │  Ollama   │                       │   │
+│   │   │ Claude Models │  │  GPT Models   │  │  (Local)  │                       │   │
+│   │   └───────────────┘  └───────────────┘  └───────────┘                       │   │
+│   │                                                                              │   │
+│   └────────────────────────────────────┬────────────────────────────────────────┘   │
+│                                        │                                            │
+│                            Tool Calls  │  (HTTP to downstream)                      │
+│                                        ▼                                            │
+│   ┌──────────────────────────────────────────────────────────────────────────────┐  │
+│   │                          TOOL SERVICES                                        │  │
+│   │                                                                               │  │
+│   │   ┌─────────────────────────────┐    ┌─────────────────────────────────┐     │  │
+│   │   │   semantic-search-service   │    │         ai-agents               │     │  │
+│   │   │        (Port 8081)          │    │        (Port 8082)              │     │  │
+│   │   │                             │    │                                 │     │  │
+│   │   │  • SBERT embeddings (local) │    │  • Code Review Agent           │     │  │
+│   │   │  • FAISS vector search      │    │  • Architecture Agent          │     │  │
+│   │   │  • Topic modeling           │    │  • Doc Generate Agent          │     │  │
+│   │   │                             │    │                                 │     │  │
+│   │   │  ❌ NO direct LLM calls     │    │  ❌ NO direct LLM calls        │     │  │
+│   │   │     (SBERT ≠ LLM API)       │    │  ✅ Calls BACK to llm-gateway  │     │  │
+│   │   │                             │    │     if LLM reasoning needed    │     │  │
+│   │   └─────────────────────────────┘    └─────────────────────────────────┘     │  │
+│   │                                                                               │  │
+│   └───────────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                      │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Why This Architecture?
+
+| Benefit | Description |
+|---------|-------------|
+| **Single credential store** | Only gateway needs API keys; reduces secret sprawl |
+| **Centralized rate limiting** | Prevent overloading provider APIs across all services |
+| **Unified cost tracking** | All token usage tracked in one place |
+| **Consistent caching** | Response cache benefits all consumers |
+| **Provider abstraction** | Switch providers without changing downstream services |
+| **Session management** | Multi-turn conversations centralized |
+| **Audit trail** | All LLM calls logged through single point |
+
+---
+
 ## Repository Summary
 
-| Repository | Type | Port | Purpose |
-|------------|------|------|---------|
-| `llm-gateway` | Microservice | 8080 | LLM provider abstraction, tool-use, sessions |
-| `semantic-search-service` | Microservice | 8081 | Embeddings, vector search, topic modeling |
-| `ai-agents` | Microservice | 8082 | Specialized AI agents (code review, architecture) |
-| `llm-document-enhancer` | Application | N/A | Batch job consuming the above services |
+| Repository | Type | Port | Purpose | Talks to LLMs? |----------------|
+| `llm-gateway` | Microservice | 8080 | LLM provider abstraction, tool-use, sessions | ✅ **YES** (only one) |
+| `semantic-search-service` | Microservice | 8081 | Embeddings, vector search, topic modeling | ❌ No (SBERT is local) |
+| `ai-agents` | Microservice | 8082 | Specialized AI agents (code review, architecture) | ❌ No (calls gateway) |
+| `llm-document-enhancer` | Application | N/A | Batch job consuming the above services | ❌ No (calls gateway) |
 
 ---
 
@@ -299,6 +370,7 @@ SEMANTIC_SEARCH_FAISS_INDEX_PATH=/data/indices
 ### ai-agents
 ```bash
 AI_AGENTS_PORT=8082
+# Agents call BACK to llm-gateway when they need LLM reasoning
 AI_AGENTS_LLM_GATEWAY_URL=http://llm-gateway:8080
 ```
 
