@@ -85,6 +85,40 @@ llm-gateway/
 │   ├── tools.json                   # Tool definitions
 │   └── providers.json               # Provider configurations
 │
+├── deploy/
+│   ├── docker/
+│   │   ├── Dockerfile               # Production multi-stage Dockerfile
+│   │   ├── Dockerfile.dev           # Development Dockerfile
+│   │   ├── docker-compose.yml       # Full stack compose
+│   │   ├── docker-compose.dev.yml   # Dev compose
+│   │   └── .env.example             # Environment template
+│   ├── kubernetes/
+│   │   ├── base/                    # Kustomize base manifests
+│   │   │   ├── deployment.yaml
+│   │   │   ├── service.yaml
+│   │   │   ├── configmap.yaml
+│   │   │   └── ...
+│   │   └── overlays/
+│   │       ├── dev/                 # Dev environment overlay
+│   │       ├── staging/             # Staging environment overlay
+│   │       └── prod/                # Production environment overlay
+│   └── helm/
+│       └── llm-gateway/             # Helm chart
+│           ├── Chart.yaml
+│           ├── values.yaml
+│           ├── values-dev.yaml
+│           ├── values-staging.yaml
+│           ├── values-prod.yaml
+│           ├── templates/           # Kubernetes templates
+│           └── tests/               # Helm unit tests
+│
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                   # CI pipeline
+│       ├── cd-dev.yml               # Dev deployment
+│       ├── cd-staging.yml           # Staging deployment
+│       └── cd-prod.yml              # Production deployment
+│
 ├── docs/
 │   ├── ARCHITECTURE.md              # This file
 │   ├── API.md                       # API documentation

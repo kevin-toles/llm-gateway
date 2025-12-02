@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
