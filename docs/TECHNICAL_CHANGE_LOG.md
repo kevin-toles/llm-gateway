@@ -30,7 +30,7 @@ This document tracks all implementation changes, their rationale, and git commit
 | **Summary** | Replaced deprecated `@app.on_event` with `@asynccontextmanager` lifespan pattern |
 | **Files Changed** | `src/main.py`, `tests/unit/test_main.py` |
 | **Rationale** | FastAPI deprecation warning for `@app.on_event("startup")` and `@app.on_event("shutdown")`. Modern pattern uses `lifespan` context manager per Starlette/FastAPI best practices. Added tools_router that was missing. |
-| **Git Commit** | `8dbb8b2` |
+| **Git Commit** | `a39a7b1` |
 
 **Details:**
 - Replaced `@app.on_event("startup")` with `@asynccontextmanager async def lifespan(app)`
@@ -52,7 +52,7 @@ This document tracks all implementation changes, their rationale, and git commit
 | **Summary** | Implemented core configuration module with Settings class and custom exceptions |
 | **Files Changed** | `src/core/__init__.py`, `src/core/config.py`, `src/core/exceptions.py`, `tests/unit/core/test_config.py`, `tests/unit/core/test_exceptions.py` |
 | **Rationale** | Per ARCHITECTURE.md specification for centralized configuration using Pydantic BaseSettings. Required for all downstream components that need configuration. |
-| **Git Commit** | `8dbb8b2` |
+| **Git Commit** | `a39a7b1` |
 
 **Details:**
 - Created `Settings` class extending `pydantic_settings.BaseSettings`
@@ -88,7 +88,7 @@ This document tracks all implementation changes, their rationale, and git commit
 | **Summary** | Updated `__init__.py` files to properly export public interfaces while avoiding circular imports |
 | **Files Changed** | `src/__init__.py`, `src/api/__init__.py`, `src/api/routes/__init__.py`, `src/models/__init__.py` |
 | **Rationale** | Acceptance criteria requires: "All `__init__.py` files export public interfaces". Initial implementation caused circular import errors, requiring redesign. |
-| **Git Commit** | `8dbb8b2` |
+| **Git Commit** | `a39a7b1` |
 
 **Details:**
 - `src/__init__.py`: Exports `__all__ = ["main", "api", "core", "models"]` (no direct imports to avoid circular)
