@@ -1,0 +1,137 @@
+# =============================================================================
+# LLM Gateway - HPA Template Unit Tests
+# =============================================================================
+# Tests for deploy/helm/llm-gateway/templates/hpa.yaml
+# Run with: helm unittest deploy/helm/llm-gateway
+# =============================================================================
+
+suite: hpa template tests
+templates:
+  - templates/hpa.yaml
+
+tests:
+  # =========================================================================
+  # Conditional Creation Tests
+  # =========================================================================
+  - it: should create HPA when autoscaling is enabled
+    set:
+      autoscaling:
+        enabled: true
+        minReplicas: 2
+        maxReplicas: 10
+    asserts:
+      - isKind:
+          of: HorizontalPodAutoscaler
+
+  - it: should NOT create HPA when autoscaling is disabled
+    set:
+      autoscaling:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # =========================================================================
+  # Basic Resource Tests
+  # =========================================================================
+  - it: should have correct API version
+    set:
+      autoscaling:
+        enabled: true
+    asserts:
+      - isAPIVersion:
+          of: autoscaling/v2
+
+  - it: should use fullname for metadata name
+    set:
+      autoscaling:
+        enabled: true
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-llm-gateway
+
+  # =========================================================================
+  # Scale Target Tests
+  # =========================================================================
+  - it: should target the correct Deployment
+    set:
+      autoscaling:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.scaleTargetRef.apiVersion
+          value: apps/v1
+      - equal:
+          path: spec.scaleTargetRef.kind
+          value: Deployment
+      - equal:
+          path: spec.scaleTargetRef.name
+          value: RELEASE-NAME-llm-gateway
+
+  # =========================================================================
+  # Replica Bounds Tests
+  # =========================================================================
+  - it: should set min and max replicas
+    set:
+      autoscaling:
+        enabled: true
+        minReplicas: 3
+        maxReplicas: 15
+    asserts:
+      - equal:
+          path: spec.minReplicas
+          value: 3
+      - equal:
+          path: spec.maxReplicas
+          value: 15
+
+  # =========================================================================
+  # Metrics Tests
+  # =========================================================================
+  - it: should have CPU utilization metric
+    set:
+      autoscaling:
+        enabled: true
+        targetCPUUtilizationPercentage: 70
+    asserts:
+      - contains:
+          path: spec.metrics
+          content:
+            type: Resource
+            resource:
+              name: cpu
+              target:
+                type: Utilization
+                averageUtilization: 70
+
+  - it: should have memory utilization metric
+    set:
+      autoscaling:
+        enabled: true
+        targetMemoryUtilizationPercentage: 80
+    asserts:
+      - contains:
+          path: spec.metrics
+          content:
+            type: Resource
+            resource:
+              name: memory
+              target:
+                type: Utilization
+                averageUtilization: 80
+
+  # =========================================================================
+  # Behavior Tests
+  # =========================================================================
+  - it: should have scaleDown behavior when configured
+    set:
+      autoscaling:
+        enabled: true
+        behavior:
+          scaleDown:
+            stabilizationWindowSeconds: 300
+    asserts:
+      - equal:
+          path: spec.behavior.scaleDown.stabilizationWindowSeconds
+          value: 300

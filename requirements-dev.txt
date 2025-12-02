@@ -1,0 +1,30 @@
+# ==============================================================================
+# LLM Gateway - Development Dependencies
+# ==============================================================================
+# See docs/DEPLOYMENT_IMPLEMENTATION_PLAN.md Section 1.6.2 for full list
+# ==============================================================================
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-timeout>=2.2.0
+httpx>=0.25.0
+
+# Mocking
+fakeredis>=2.20.0
+respx>=0.20.0
+
+# Linting & Formatting
+ruff>=0.1.6
+mypy>=1.7.0
+
+# Type Stubs
+types-redis>=4.6.0
+
+# Pre-commit hooks
+pre-commit>=3.6.0
+
+# Development utilities
+ipython>=8.18.0
+watchfiles>=0.21.0

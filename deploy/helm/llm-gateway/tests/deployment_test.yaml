@@ -1,0 +1,142 @@
+# =============================================================================
+# LLM Gateway - Deployment Template Unit Tests
+# =============================================================================
+# Run with: helm unittest deploy/helm/llm-gateway
+# =============================================================================
+
+suite: deployment template tests
+templates:
+  - templates/deployment.yaml
+  - templates/configmap.yaml
+  - templates/secret.yaml
+
+tests:
+  - it: should render a Deployment
+    template: templates/deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: should have correct API version
+    template: templates/deployment.yaml
+    asserts:
+      - isAPIVersion:
+          of: apps/v1
+
+  - it: should use fullname for metadata name
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-llm-gateway
+
+  - it: should have standard Kubernetes labels
+    template: templates/deployment.yaml
+    asserts:
+      - isNotEmpty:
+          path: metadata.labels["helm.sh/chart"]
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: llm-gateway
+
+  - it: should set replicas when autoscaling is disabled
+    template: templates/deployment.yaml
+    set:
+      autoscaling:
+        enabled: false
+      replicaCount: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: should NOT set replicas when autoscaling is enabled
+    template: templates/deployment.yaml
+    set:
+      autoscaling:
+        enabled: true
+    asserts:
+      - isNull:
+          path: spec.replicas
+
+  - it: should use custom image tag when specified
+    template: templates/deployment.yaml
+    set:
+      image:
+        repository: custom-repo/llm-gateway
+        tag: v2.0.0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: custom-repo/llm-gateway:v2.0.0
+
+  - it: should have pod security context with runAsNonRoot
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1000
+
+  - it: should have container security context
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: should have default resource requests
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 250m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 512Mi
+
+  - it: should have liveness probe configured
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /live
+
+  - it: should have readiness probe configured
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /ready
+
+  - it: should have startup probe configured
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /health
+
+  - it: should use generated serviceAccountName
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: RELEASE-NAME-llm-gateway
+
+  - it: should have prometheus scrape annotations
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["prometheus.io/scrape"]
+          value: "true"
+
+  - it: should have config checksum annotation
+    template: templates/deployment.yaml
+    asserts:
+      - isNotEmpty:
+          path: spec.template.metadata.annotations["checksum/config"]

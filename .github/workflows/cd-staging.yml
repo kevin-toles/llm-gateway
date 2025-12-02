@@ -1,0 +1,272 @@
+# =============================================================================
+# LLM Gateway - Continuous Deployment (Staging)
+# =============================================================================
+# Triggers: push to main branch, workflow_dispatch
+# Deploys using Kustomize to staging Kubernetes cluster
+# Includes integration tests post-deployment
+# =============================================================================
+
+name: CD - Staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (default: latest main build)'
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  KUBE_NAMESPACE: llm-services-staging
+  ENVIRONMENT: staging
+
+# Prevent concurrent deployments to the same environment
+concurrency:
+  group: deploy-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  # ===========================================================================
+  # Deploy Job - Deploy to Staging
+  # ===========================================================================
+  deploy:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.llm-gateway.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.29.0'
+
+      - name: Set up Kustomize
+        uses: imranismail/setup-kustomize@v2
+        with:
+          kustomize-version: '5.3.0'
+
+      - name: Configure Kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Determine image tag
+        id: image-tag
+        run: |
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=sha-${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update Kustomize image
+        working-directory: deploy/kubernetes/overlays/staging
+        run: |
+          kustomize edit set image llm-gateway=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.image-tag.outputs.tag }}
+
+      - name: Validate manifests
+        run: |
+          kustomize build deploy/kubernetes/overlays/staging | kubectl apply --dry-run=client -f -
+
+      - name: Deploy with Kustomize
+        run: |
+          echo "Deploying to ${{ env.ENVIRONMENT }}..."
+          kustomize build deploy/kubernetes/overlays/staging | kubectl apply -f -
+
+      - name: Wait for rollout
+        run: |
+          echo "Waiting for deployment rollout..."
+          kubectl rollout status deployment/llm-gateway \
+            -n ${{ env.KUBE_NAMESPACE }} \
+            --timeout=300s
+
+      - name: Get deployment status
+        if: always()
+        run: |
+          echo "=== Deployment Status ==="
+          kubectl get deployment llm-gateway -n ${{ env.KUBE_NAMESPACE }} -o wide
+
+          echo ""
+          echo "=== Pod Status ==="
+          kubectl get pods -n ${{ env.KUBE_NAMESPACE }} -l app.kubernetes.io/name=llm-gateway
+
+          echo ""
+          echo "=== Service Status ==="
+          kubectl get svc -n ${{ env.KUBE_NAMESPACE }} -l app.kubernetes.io/name=llm-gateway
+
+  # ===========================================================================
+  # Integration Test Job - Run Integration Tests
+  # ===========================================================================
+  integration-test:
+    name: Integration Tests
+    needs: deploy
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install test dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Configure Kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Set up Kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.29.0'
+
+      - name: Port forward to service
+        run: |
+          kubectl port-forward -n ${{ env.KUBE_NAMESPACE }} \
+            svc/llm-gateway 8080:8080 &
+          sleep 5  # Wait for port-forward to establish
+
+      - name: Run health checks
+        run: |
+          echo "Running health check..."
+          curl -sf http://localhost:8080/health
+          echo "✅ Health check passed"
+
+          echo "Running readiness check..."
+          curl -sf http://localhost:8080/ready
+          echo "✅ Readiness check passed"
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration -v \
+            --tb=short \
+            --junitxml=integration-results.xml
+        env:
+          LLM_GATEWAY_URL: http://localhost:8080
+          LLM_GATEWAY_REDIS_URL: ${{ secrets.STAGING_REDIS_URL }}
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: integration-results.xml
+
+  # ===========================================================================
+  # E2E Test Job - End-to-End Tests
+  # ===========================================================================
+  e2e-test:
+    name: E2E Tests
+    needs: integration-test
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure Kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_STAGING }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Set up Kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'v1.29.0'
+
+      - name: Port forward to service
+        run: |
+          kubectl port-forward -n ${{ env.KUBE_NAMESPACE }} \
+            svc/llm-gateway 8080:8080 &
+          sleep 5
+
+      - name: Test LLM completion endpoint
+        run: |
+          echo "Testing LLM completion endpoint..."
+          curl -sf -X POST http://localhost:8080/api/v1/completions \
+            -H "Content-Type: application/json" \
+            -d '{"prompt": "Hello", "provider": "mock", "max_tokens": 10}' \
+            | jq .
+
+          echo "✅ LLM completion endpoint working"
+
+      - name: Test provider health endpoints
+        run: |
+          echo "Checking provider health..."
+          curl -sf http://localhost:8080/api/v1/providers/health | jq .
+          echo "✅ Provider health check passed"
+
+  # ===========================================================================
+  # Notify Job - Send Notifications
+  # ===========================================================================
+  notify:
+    name: Notify
+    needs: [deploy, integration-test, e2e-test]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Send Slack notification (success)
+        if: ${{ needs.deploy.result == 'success' && needs.integration-test.result == 'success' && needs.e2e-test.result == 'success' }}
+        uses: slackapi/slack-github-action@v1
+        continue-on-error: true
+        with:
+          payload: |
+            {
+              "text": "✅ *LLM Gateway* deployed to *staging*",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "✅ *LLM Gateway* deployed to *staging*\n• Commit: `${{ github.sha }}`\n• Branch: `${{ github.ref_name }}`\n• Tests: All passed ✓\n• <https://staging.llm-gateway.example.com|View Application>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Send Slack notification (failure)
+        if: ${{ needs.deploy.result == 'failure' || needs.integration-test.result == 'failure' || needs.e2e-test.result == 'failure' }}
+        uses: slackapi/slack-github-action@v1
+        continue-on-error: true
+        with:
+          payload: |
+            {
+              "text": "❌ *LLM Gateway* deployment to *staging* FAILED",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "❌ *LLM Gateway* deployment to *staging* FAILED\n• Commit: `${{ github.sha }}`\n• Branch: `${{ github.ref_name }}`\n• Deploy: ${{ needs.deploy.result }}\n• Integration: ${{ needs.integration-test.result }}\n• E2E: ${{ needs.e2e-test.result }}\n• <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

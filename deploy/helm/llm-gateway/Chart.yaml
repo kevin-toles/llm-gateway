@@ -1,0 +1,95 @@
+# =============================================================================
+# LLM Gateway Helm Chart
+# =============================================================================
+# Helm chart for deploying the LLM Gateway service to Kubernetes.
+# This chart provides a unified interface to multiple LLM providers.
+# =============================================================================
+
+apiVersion: v2
+
+# Chart name (must match directory name)
+name: llm-gateway
+
+# Chart description
+description: |
+  Helm chart for LLM Gateway - A unified interface to multiple LLM providers
+  (Anthropic, OpenAI, Ollama) with session management, rate limiting, and
+  high availability support.
+
+# Chart type: application (deployable) or library (reusable)
+type: application
+
+# Chart version (SemVer 2)
+# Increment for any chart changes
+version: 0.1.0
+
+# Application version being deployed
+# Should match the Docker image tag
+appVersion: "1.0.0"
+
+# =============================================================================
+# Chart Metadata
+# =============================================================================
+
+# Keywords for chart discovery
+keywords:
+  - llm
+  - gateway
+  - ai
+  - anthropic
+  - openai
+  - ollama
+  - machine-learning
+  - api-gateway
+
+# Project home page
+home: https://github.com/kevin-toles/ai-llm-technical-documentation-engine
+
+# Source code locations
+sources:
+  - https://github.com/kevin-toles/ai-llm-technical-documentation-engine
+
+# Chart icon (optional)
+# icon: https://example.com/llm-gateway-icon.png
+
+# =============================================================================
+# Maintainers
+# =============================================================================
+maintainers:
+  - name: Kevin Toles
+    email: kevin.toles@example.com
+    url: https://github.com/kevin-toles
+
+# =============================================================================
+# Annotations
+# =============================================================================
+annotations:
+  # Artifact Hub annotations
+  artifacthub.io/category: ai-machine-learning
+  artifacthub.io/license: MIT
+  
+  # Chart documentation
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://github.com/kevin-toles/ai-llm-technical-documentation-engine/docs
+    - name: Support
+      url: https://github.com/kevin-toles/ai-llm-technical-documentation-engine/issues
+
+# =============================================================================
+# Dependencies
+# =============================================================================
+# Redis is used for session storage and caching
+# Set redis.enabled=true in values.yaml to deploy Redis with the chart
+dependencies:
+  - name: redis
+    version: "18.x.x"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+    tags:
+      - cache
+      - session-storage
+
+# =============================================================================
+# Kubernetes Version Constraints
+# =============================================================================
+kubeVersion: ">=1.23.0-0"

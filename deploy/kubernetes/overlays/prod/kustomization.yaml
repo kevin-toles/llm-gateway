@@ -1,0 +1,107 @@
+# =============================================================================
+# LLM Gateway - Production Overlay
+# =============================================================================
+# Production environment customizations:
+# - High availability configuration
+# - Full resource allocation
+# - Warning-level logging (reduce noise)
+# - Production image tags
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# =============================================================================
+# Base Reference
+# =============================================================================
+resources:
+  - ../../base
+
+# =============================================================================
+# Namespace Override
+# =============================================================================
+namespace: llm-services
+
+# =============================================================================
+# Common Labels for Production
+# =============================================================================
+commonLabels:
+  environment: production
+
+# =============================================================================
+# Images - Production Tag
+# =============================================================================
+# In production, use specific version tags, not 'latest'
+images:
+  - name: llm-gateway
+    newName: llm-gateway
+    newTag: v0.1.0  # Specific version for production
+
+# =============================================================================
+# Patches - Production Overrides
+# =============================================================================
+patches:
+  # ---------------------------------------------------------------------------
+  # Deployment Patches
+  # ---------------------------------------------------------------------------
+  - target:
+      kind: Deployment
+      name: llm-gateway
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "2000m"
+            memory: "4Gi"
+
+  # ---------------------------------------------------------------------------
+  # HPA Patches - Full scaling for production
+  # ---------------------------------------------------------------------------
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: llm-gateway
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 3
+      - op: replace
+        path: /spec/maxReplicas
+        value: 20
+
+  # ---------------------------------------------------------------------------
+  # PDB Patches - Higher availability guarantee
+  # ---------------------------------------------------------------------------
+  - target:
+      kind: PodDisruptionBudget
+      name: llm-gateway
+    patch: |-
+      - op: replace
+        path: /spec/minAvailable
+        value: 2
+
+  # ---------------------------------------------------------------------------
+  # ConfigMap Patches - Production environment settings
+  # ---------------------------------------------------------------------------
+  - target:
+      kind: ConfigMap
+      name: llm-gateway-config
+    patch: |-
+      - op: replace
+        path: /data/LLM_GATEWAY_ENV
+        value: "production"
+      - op: replace
+        path: /data/LLM_GATEWAY_LOG_LEVEL
+        value: "WARNING"
+      - op: replace
+        path: /data/LLM_GATEWAY_WORKERS
+        value: "4"
+      - op: replace
+        path: /data/LLM_GATEWAY_RATE_LIMIT_REQUESTS_PER_MINUTE
+        value: "120"

@@ -1,0 +1,177 @@
+# =============================================================================
+# LLM Gateway Network Policies
+# =============================================================================
+# Zero-trust network security with explicit allow rules.
+# Implements defense-in-depth by restricting both ingress and egress traffic.
+# =============================================================================
+
+---
+# =============================================================================
+# Default Deny All Policy
+# =============================================================================
+# Deny all ingress and egress traffic by default for pods in llm-services
+# namespace. Specific policies below will allow required traffic.
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: llm-services
+  labels:
+    app.kubernetes.io/part-of: llm-document-enhancement
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}  # Applies to all pods in namespace
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+# =============================================================================
+# LLM Gateway Network Policy
+# =============================================================================
+# Specific allow rules for the LLM Gateway pods.
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llm-gateway-policy
+  namespace: llm-services
+  labels:
+    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: llm-document-enhancement
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: llm-gateway
+  
+  policyTypes:
+    - Ingress
+    - Egress
+  
+  # ===========================================================================
+  # Ingress Rules
+  # ===========================================================================
+  ingress:
+    # -------------------------------------------------------------------------
+    # Allow from Ingress Controller (ingress-nginx namespace)
+    # -------------------------------------------------------------------------
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+    
+    # -------------------------------------------------------------------------
+    # Allow from Document Enhancer pods (same namespace or doc-enhancer ns)
+    # -------------------------------------------------------------------------
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: doc-enhancer
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: doc-enhancer
+      ports:
+        - protocol: TCP
+          port: 8080
+    
+    # -------------------------------------------------------------------------
+    # Allow from AI Agents pods (callback requests)
+    # -------------------------------------------------------------------------
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-agents
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: llm-services
+      ports:
+        - protocol: TCP
+          port: 8080
+    
+    # -------------------------------------------------------------------------
+    # Allow from Monitoring namespace (Prometheus scraping)
+    # -------------------------------------------------------------------------
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  
+  # ===========================================================================
+  # Egress Rules
+  # ===========================================================================
+  egress:
+    # -------------------------------------------------------------------------
+    # Allow DNS resolution (kube-dns/CoreDNS)
+    # -------------------------------------------------------------------------
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    
+    # -------------------------------------------------------------------------
+    # Allow to Semantic Search service (port 8081)
+    # -------------------------------------------------------------------------
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: semantic-search
+      ports:
+        - protocol: TCP
+          port: 8081
+    
+    # -------------------------------------------------------------------------
+    # Allow to AI Agents service (port 8082)
+    # -------------------------------------------------------------------------
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-agents
+      ports:
+        - protocol: TCP
+          port: 8082
+    
+    # -------------------------------------------------------------------------
+    # Allow to Redis (port 6379)
+    # -------------------------------------------------------------------------
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    
+    # -------------------------------------------------------------------------
+    # Allow external HTTPS (Anthropic API, OpenAI API, Ollama)
+    # -------------------------------------------------------------------------
+    # Note: For production, consider using an egress gateway or proxy
+    # to control and audit external API calls.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Exclude private IP ranges (RFC 1918)
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              # Exclude link-local
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443  # HTTPS for Anthropic, OpenAI APIs

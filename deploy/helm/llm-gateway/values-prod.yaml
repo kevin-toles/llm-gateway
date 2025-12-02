@@ -1,0 +1,177 @@
+# =============================================================================
+# LLM Gateway - Production Environment Values
+# =============================================================================
+# Usage:
+#   helm install llm-gateway ./deploy/helm/llm-gateway -f values-prod.yaml
+# =============================================================================
+
+# High availability replicas for production
+replicaCount: 3
+
+# Production image tag (use specific version, not latest)
+image:
+  tag: "v1.0.0"
+  pullPolicy: Always
+
+# High resources for production
+resources:
+  requests:
+    cpu: "500m"
+    memory: "1Gi"
+  limits:
+    cpu: "2000m"
+    memory: "4Gi"
+
+# Aggressive autoscaling for production
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 60  # Scale earlier
+  targetMemoryUtilizationPercentage: 70
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+
+# Higher availability PDB for production
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# Production pod anti-affinity
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: llm-gateway
+          topologyKey: kubernetes.io/hostname
+      - weight: 50
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: llm-gateway
+          topologyKey: topology.kubernetes.io/zone
+
+# Production application config
+config:
+  environment: "production"
+  logLevel: "WARNING"
+  workers: 4
+  rateLimitRequestsPerMinute: 60
+  rateLimitTokensPerMinute: 100000
+  sessionTtlSeconds: 7200
+  maxContextLength: 128000
+
+# Production secrets (external secrets required)
+secrets:
+  create: false
+  existingSecret: "llm-gateway-secrets"
+  externalSecrets:
+    enabled: true
+    secretStoreRef:
+      name: "aws-secrets-manager"
+      kind: "ClusterSecretStore"
+    remoteRefs:
+      anthropicApiKey: "prod/llm-gateway/anthropic-api-key"
+      openaiApiKey: "prod/llm-gateway/openai-api-key"
+
+# Strict network policies for production
+networkPolicy:
+  enabled: true
+  ingress:
+    allowIngressController: true
+    ingressControllerNamespace: "ingress-nginx"
+    allowMonitoring: true
+    monitoringNamespace: "monitoring"
+  egress:
+    allowDns: true
+    allowExternalHttps: true
+    allowRedis: true
+
+# Production Redis with replication for HA
+redis:
+  enabled: true
+  architecture: replication
+  auth:
+    enabled: true
+    password: ""  # Set via external secret or --set
+  master:
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: "gp3"  # AWS EBS gp3
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+  replica:
+    replicaCount: 2
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: "gp3"
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+
+# Production ingress with TLS
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Rate limiting at ingress level
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+  hosts:
+    - host: llm-gateway.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: llm-gateway-prod-tls
+      hosts:
+        - llm-gateway.example.com
+
+# Production-specific annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+  # Datadog APM (if using)
+  # ad.datadoghq.com/llm-gateway.logs: '[{"source":"python","service":"llm-gateway"}]'
+
+# Service account with cloud provider integration
+serviceAccount:
+  create: true
+  annotations:
+    # AWS IRSA for accessing Secrets Manager
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/llm-gateway-prod-role"
