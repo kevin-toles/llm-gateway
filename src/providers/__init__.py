@@ -14,7 +14,7 @@ WBS Coverage:
 - 2.3.2: Anthropic Provider
 - 2.3.3: OpenAI Provider
 - 2.3.4: Ollama Provider
-- 2.3.5: Provider Router (future)
+- 2.3.5: Provider Router
 """
 
 from src.providers.base import LLMProvider
@@ -31,6 +31,11 @@ from src.providers.ollama import (
     ConnectionError as OllamaConnectionError,
     TimeoutError as OllamaTimeoutError,
 )
+from src.providers.router import (
+    ProviderRouter,
+    NoProviderError,
+    create_provider_router,
+)
 
 __all__ = [
     "LLMProvider",
@@ -43,4 +48,7 @@ __all__ = [
     "OllamaProvider",
     "OllamaConnectionError",
     "OllamaTimeoutError",
+    "ProviderRouter",
+    "NoProviderError",
+    "create_provider_router",
 ]
