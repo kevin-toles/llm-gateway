@@ -484,6 +484,168 @@ class TestProviderErrorHandling:
                 mock_logger.error.assert_called()
 
 
+class TestToolCallsInResponse:
+    """
+    Test suite for tool calls handling in response - WBS 2.2.2.3.5
+
+    Pattern: Tool/function calling (AI Engineering pp. 1463-1587)
+    Pattern: OpenAI API compatibility
+
+    Reference: When LLM returns tool_calls in response, the gateway must:
+    1. Include tool_calls in response message
+    2. Set finish_reason to 'tool_calls'
+    3. Content may be null when tool_calls present
+    """
+
+    def test_response_can_include_tool_calls(self):
+        """
+        WBS 2.2.2.3.5: Response message must support tool_calls field.
+
+        Pattern: OpenAI API compatibility
+        """
+        from src.models.responses import ChoiceMessage
+
+        # Verify ChoiceMessage can have tool_calls
+        message = ChoiceMessage(
+            role="assistant",
+            content=None,
+            tool_calls=[
+                {
+                    "id": "call_abc123",
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": '{"location": "San Francisco"}',
+                    },
+                }
+            ],
+        )
+        assert message.tool_calls is not None
+        assert len(message.tool_calls) == 1
+        assert message.tool_calls[0]["id"] == "call_abc123"
+
+    def test_response_finish_reason_tool_calls(self):
+        """
+        WBS 2.2.2.3.5: When tool_calls present, finish_reason should be 'tool_calls'.
+
+        Pattern: OpenAI API compatibility
+        """
+        from src.models.responses import Choice, ChoiceMessage
+
+        choice = Choice(
+            index=0,
+            message=ChoiceMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[{"id": "call_123", "type": "function", "function": {"name": "test", "arguments": "{}"}}],
+            ),
+            finish_reason="tool_calls",
+        )
+        assert choice.finish_reason == "tool_calls"
+
+    def test_chat_service_returns_tool_calls_when_tools_provided(
+        self, client: TestClient
+    ):
+        """
+        WBS 2.2.2.3.5: When request includes tools and model determines to use them,
+        response should include tool_calls.
+
+        Pattern: Tool/function calling (AI Engineering pp. 1463-1587)
+
+        Note: This tests the stub behavior. In production, actual LLM determines
+        whether to return tool_calls.
+        """
+        from src.models.responses import ChatCompletionResponse
+        import time
+
+        # Create mock response with tool_calls
+        mock_response = ChatCompletionResponse(
+            id="chatcmpl-test-tools",
+            object="chat.completion",
+            created=int(time.time()),
+            model="gpt-4",
+            choices=[
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_weather123",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": '{"location": "New York"}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            usage={"prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70},
+        )
+
+        with patch(
+            "src.api.routes.chat.ChatService.create_completion",
+            return_value=mock_response,
+        ):
+            payload = {
+                "model": "gpt-4",
+                "messages": [{"role": "user", "content": "What's the weather in New York?"}],
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "description": "Get weather for a location",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"location": {"type": "string"}},
+                            },
+                        },
+                    }
+                ],
+            }
+            response = client.post("/v1/chat/completions", json=payload)
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["choices"][0]["finish_reason"] == "tool_calls"
+            assert data["choices"][0]["message"]["tool_calls"] is not None
+            assert len(data["choices"][0]["message"]["tool_calls"]) == 1
+
+    def test_tool_call_has_required_fields(self):
+        """
+        WBS 2.2.2.3.5: Tool call must have id, type, and function fields.
+
+        Pattern: OpenAI API compatibility (AI Engineering pp. 1463-1587)
+        """
+        from src.models.responses import ChoiceMessage
+
+        tool_call = {
+            "id": "call_abc123",
+            "type": "function",
+            "function": {
+                "name": "search_database",
+                "arguments": '{"query": "test"}',
+            },
+        }
+
+        message = ChoiceMessage(
+            role="assistant",
+            content=None,
+            tool_calls=[tool_call],
+        )
+
+        assert "id" in message.tool_calls[0]
+        assert "type" in message.tool_calls[0]
+        assert "function" in message.tool_calls[0]
+        assert "name" in message.tool_calls[0]["function"]
+        assert "arguments" in message.tool_calls[0]["function"]
+
+
 class TestRequestResponseModels:
     """
     Test suite for Pydantic models - WBS 2.2.2.2

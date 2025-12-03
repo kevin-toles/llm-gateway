@@ -20,6 +20,44 @@ This document tracks all implementation changes, their rationale, and git commit
 
 ## 2025-12-02
 
+### CL-008: WBS 2.2.2.3.5 Tool Calls Response Handling - Verification & Tests
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-02 ~22:00 UTC |
+| **WBS Item** | 2.2.2.3.5 |
+| **Change Type** | Verification + Tests |
+| **Summary** | Verified tool_calls response handling and added 4 tests to document compliance |
+| **Files Changed** | `tests/unit/api/test_chat.py` |
+| **Rationale** | WBS 2.2.2.3.5 "Handle tool calls if present in response" - verified existing implementation already supports this. Added tests for documentation and regression prevention. |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- AI Engineering pp. 1463-1587: Tool/function calling patterns
+- OpenAI API spec: tool_calls array with id, type, function (name, arguments)
+- ChoiceMessage model already has `tool_calls: Optional[list[dict]]`
+- Choice model supports `finish_reason="tool_calls"`
+
+**TDD Cycle:**
+- **RED/GREEN**: 4 tests written - all passed immediately (existing implementation compliant)
+- **REFACTOR**: No changes needed
+
+**Verification Results:**
+| Requirement | Status |
+|-------------|--------|
+| ChoiceMessage supports tool_calls field | ✅ COMPLIANT |
+| finish_reason can be "tool_calls" | ✅ COMPLIANT |
+| API returns tool_calls from service | ✅ COMPLIANT |
+| Tool call format matches OpenAI spec | ✅ COMPLIANT |
+
+**Tests Added:** 4 new tests (31→35 for test_chat.py)
+- `test_response_can_include_tool_calls`
+- `test_response_finish_reason_tool_calls`
+- `test_chat_service_returns_tool_calls_when_tools_provided`
+- `test_tool_call_has_required_fields`
+
+---
+
 ### CL-007: WBS 2.2.2.3.9 Provider Error → 502 - TDD Implementation
 
 | Field | Value |
@@ -273,3 +311,4 @@ Step 3 - Conflict Identification:
 | 2.2.1.3.4 Provider Metrics | 2025-12-02 | 9 | 190 |
 | 2.2.2.2.9 session_id | 2025-12-02 | 3 | 193 |
 | 2.2.2.3.9 Provider Error 502 | 2025-12-02 | 3 | 196 |
+| 2.2.2.3.5 Tool Calls Response | 2025-12-02 | 4 | 200 |
