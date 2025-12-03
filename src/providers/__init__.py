@@ -13,7 +13,7 @@ WBS Coverage:
 - 2.3.1: Provider Base Interface
 - 2.3.2: Anthropic Provider
 - 2.3.3: OpenAI Provider
-- 2.3.4: Ollama Provider (future)
+- 2.3.4: Ollama Provider
 - 2.3.5: Provider Router (future)
 """
 
@@ -26,6 +26,11 @@ from src.providers.openai import (
     RateLimitError,
     AuthenticationError,
 )
+from src.providers.ollama import (
+    OllamaProvider,
+    ConnectionError as OllamaConnectionError,
+    TimeoutError as OllamaTimeoutError,
+)
 
 __all__ = [
     "LLMProvider",
@@ -35,4 +40,7 @@ __all__ = [
     "ProviderError",
     "RateLimitError",
     "AuthenticationError",
+    "OllamaProvider",
+    "OllamaConnectionError",
+    "OllamaTimeoutError",
 ]
