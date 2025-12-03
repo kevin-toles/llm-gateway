@@ -20,6 +20,108 @@ This document tracks all implementation changes, their rationale, and git commit
 
 ## 2025-12-03
 
+### CL-016: WBS 2.4.1 Tool Registry and Domain Models
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-03 |
+| **WBS Item** | 2.4.1.1, 2.4.1.2 |
+| **Change Type** | Feature |
+| **Summary** | Implemented tool registry infrastructure and domain models following service registry pattern |
+| **Files Changed** | `src/models/domain.py`, `src/tools/__init__.py`, `src/tools/registry.py`, `tests/unit/models/test_domain.py`, `tests/unit/tools/test_registry.py` |
+| **Rationale** | WBS 2.4.1 requires tool registry per GUIDELINES pp. 1510-1569 service registry pattern |
+| **Git Commit** | `731d4f9` |
+
+**Document Analysis Results:**
+- GUIDELINES pp. 1510-1569: Tool inventory as service registry pattern
+- GUIDELINES pp. 276: Domain modeling with Pydantic
+- ARCHITECTURE.md lines 46-49: `src/tools/registry.py`, `src/models/domain.py`
+- ANTI_PATTERN §1.1: `Optional[T]` with explicit None
+
+**Implementation Details:**
+
+**Domain Models (src/models/domain.py):**
+- `ToolDefinition`: name, description, parameters (JSON Schema format)
+- `RegisteredTool`: definition + callable handler with `arbitrary_types_allowed`
+- `ToolCall`: id, name, arguments with `from_openai_format()` classmethod
+- `ToolResult`: tool_call_id, content, is_error with `to_message_dict()`
+
+**Tool Registry (src/tools/registry.py):**
+- `ToolRegistry` class with register/get/list/has/unregister methods
+- `get_tool_registry()` singleton getter per GUIDELINES pattern
+- `ToolNotFoundError` exception for proper error handling
+- `load_from_file()` for JSON configuration loading
+
+**Tests Added:** 51 new tests (27 domain + 24 registry), 435 total passing
+
+---
+
+### CL-015: WBS 2.3.5 Provider Router Implementation
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-03 |
+| **WBS Item** | 2.3.5.1 - 2.3.5.6 |
+| **Change Type** | Feature |
+| **Summary** | Implemented provider router for dynamic provider selection and routing |
+| **Files Changed** | `src/providers/router.py`, `src/providers/__init__.py`, `tests/unit/providers/test_router.py` |
+| **Rationale** | WBS 2.3.5 requires provider routing per ARCHITECTURE.md provider layer design |
+| **Git Commit** | `05a8629` |
+
+**Implementation Details:**
+- `ProviderRouter` class for provider selection logic
+- `get_provider()` method with model-to-provider mapping
+- Provider registration and lookup
+- Fallback provider configuration
+
+**Tests Added:** 24 new tests, 384 total passing
+
+---
+
+### CL-014: WBS 2.3.4 Ollama Provider Implementation
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-03 |
+| **WBS Item** | 2.3.4.1 - 2.3.4.6 |
+| **Change Type** | Feature |
+| **Summary** | Implemented Ollama provider adapter for local LLM support |
+| **Files Changed** | `src/providers/ollama.py`, `src/providers/__init__.py`, `tests/unit/providers/test_ollama.py` |
+| **Rationale** | WBS 2.3.4 requires Ollama adapter per ARCHITECTURE.md line 43 |
+| **Git Commit** | `f41eb70` |
+
+**Implementation Details:**
+- `OllamaProvider` class extending `LLMProvider` ABC
+- Local model connectivity via Ollama API
+- Chat completion and streaming support
+- Model availability checking
+
+**Tests Added:** 24 new tests, 360 total passing
+
+---
+
+### CL-013: WBS 2.3.3 OpenAI Provider Implementation
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-03 |
+| **WBS Item** | 2.3.3.1 - 2.3.3.6 |
+| **Change Type** | Feature |
+| **Summary** | Implemented OpenAI provider adapter as reference implementation |
+| **Files Changed** | `src/providers/openai.py`, `src/providers/__init__.py`, `tests/unit/providers/test_openai.py` |
+| **Rationale** | WBS 2.3.3 requires OpenAI adapter per ARCHITECTURE.md line 40 |
+| **Git Commit** | `144ce6d` |
+
+**Implementation Details:**
+- `OpenAIProvider` class extending `LLMProvider` ABC
+- Chat completion with tool support
+- Streaming response handling
+- API key configuration
+
+**Tests Added:** 31 new tests, 336 total passing
+
+---
+
 ### CL-012: WBS 2.3.2.2 Anthropic Tool Handling - TDD Implementation
 
 | Field | Value |
