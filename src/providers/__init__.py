@@ -11,12 +11,13 @@ Reference Documents:
 
 WBS Coverage:
 - 2.3.1: Provider Base Interface
-- 2.3.2: Anthropic Provider (future)
+- 2.3.2: Anthropic Provider
 - 2.3.3: OpenAI Provider (future)
 - 2.3.4: Ollama Provider (future)
 - 2.3.5: Provider Router (future)
 """
 
 from src.providers.base import LLMProvider
+from src.providers.anthropic import AnthropicToolHandler
 
-__all__ = ["LLMProvider"]
+__all__ = ["LLMProvider", "AnthropicToolHandler"]

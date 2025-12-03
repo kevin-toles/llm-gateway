@@ -20,6 +20,57 @@ This document tracks all implementation changes, their rationale, and git commit
 
 ## 2025-12-03
 
+### CL-012: WBS 2.3.2.2 Anthropic Tool Handling - TDD Implementation
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-03 ~02:30 UTC |
+| **WBS Item** | 2.3.2.2.1 - 2.3.2.2.6 |
+| **Change Type** | Feature |
+| **Summary** | Implemented Anthropic tool format transformation (OpenAI ↔ Anthropic) following TDD cycle |
+| **Files Changed** | `src/providers/anthropic.py`, `src/providers/__init__.py`, `tests/unit/providers/test_anthropic_tools.py` |
+| **Rationale** | WBS 2.3.2.2 requires tool handling for Anthropic adapter per ARCHITECTURE.md line 41. |
+| **Git Commit** | `0000ccd` |
+
+**Document Analysis Results:**
+- ARCHITECTURE.md line 41: `anthropic.py - Anthropic Claude adapter`
+- ARCHITECTURE.md lines 209-213: Tool-Use Orchestrator - "Parses LLM tool_call responses"
+- GUIDELINES pp. 1510-1590: Tool patterns and agent architectures
+- Anthropic API: tool_use/tool_result content block format
+- ANTI_PATTERN §1.1: Optional[T] with None default
+
+**Format Differences Handled:**
+
+| Aspect | OpenAI Format | Anthropic Format |
+|--------|--------------|------------------|
+| Tool definition | `function.parameters` | `input_schema` |
+| Tool use response | `tool_calls[]` | Content block `type: "tool_use"` |
+| Tool result | `role: "tool"` | `role: "user"` with `type: "tool_result"` |
+
+**TDD Cycle:**
+- **RED**: 16 tests written (ModuleNotFoundError - no implementation)
+- **GREEN**: Implemented AnthropicToolHandler with 3 transformation methods
+- **REFACTOR**: Updated exports in __init__.py
+
+**Implementation Details:**
+
+**WBS 2.3.2.2.1 Tool Definition Transformation:**
+- `transform_tool_definition()` - Single tool OpenAI → Anthropic
+- `transform_tools()` - Batch transformation
+
+**WBS 2.3.2.2.2 Tool Use Response Parsing:**
+- `parse_tool_use_response()` - Content blocks → tool_calls[]
+- `extract_text_content()` - Extract text alongside tool uses
+
+**WBS 2.3.2.2.3 Tool Result Formatting:**
+- `format_tool_result()` - Single tool_result content block
+- `format_tool_result_message()` - OpenAI tool message → Anthropic
+- `format_tool_results()` - Multiple results to single message
+
+**Tests Added:** 16 new tests (289→305)
+
+---
+
 ### CL-011: WBS 2.3.1 Provider Base Interface - TDD Implementation
 
 | Field | Value |
