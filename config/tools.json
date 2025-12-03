@@ -1,0 +1,42 @@
+{
+  "tools": [
+    {
+      "name": "search_corpus",
+      "description": "Search the document corpus for relevant content using semantic similarity. Returns the most relevant chunks matching the query.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The search query to find relevant documents."
+          },
+          "top_k": {
+            "type": "integer",
+            "description": "Maximum number of results to return (default: 10).",
+            "default": 10
+          },
+          "collection": {
+            "type": "string",
+            "description": "The document collection to search (default: 'default').",
+            "default": "default"
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "get_chunk",
+      "description": "Retrieve a specific document chunk by its ID. Returns the chunk content and associated metadata.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "description": "The unique identifier of the chunk to retrieve."
+          }
+        },
+        "required": ["chunk_id"]
+      }
+    }
+  ]
+}
