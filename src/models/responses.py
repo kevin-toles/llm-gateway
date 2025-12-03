@@ -7,6 +7,7 @@ Reference Documents:
 - GUIDELINES: FastAPI Pydantic validators (Sinha pp. 193-195)
 - GUIDELINES: OpenAI API compatibility patterns
 - GUIDELINES p. 2149: Token generation and streaming patterns
+- ARCHITECTURE.md: Lines 195-197 - Session endpoints
 
 Anti-Patterns Avoided:
 - §1.1: Optional fields use Optional[T] with explicit None default
@@ -193,3 +194,36 @@ class ChatCompletionChunk(BaseModel):
     system_fingerprint: Optional[str] = Field(
         default=None, description="System fingerprint"
     )
+
+
+# =============================================================================
+# Session Response Model - WBS 2.2.3.2.2
+# Reference: ARCHITECTURE.md lines 195-197 - Session endpoints
+# =============================================================================
+
+
+class SessionResponse(BaseModel):
+    """
+    Session response model.
+
+    WBS 2.2.3.2.2: SessionResponse model for session endpoints.
+
+    Pattern: Pydantic models (Sinha pp. 193-195)
+
+    Attributes:
+        id: Unique session identifier
+        messages: List of messages in the session
+        context: Session context data
+        created_at: Session creation timestamp (ISO format)
+        expires_at: Session expiration timestamp (ISO format)
+    """
+
+    id: str = Field(..., description="Session ID")
+    messages: list[dict[str, Any]] = Field(
+        default_factory=list, description="Session messages"
+    )
+    context: dict[str, Any] = Field(
+        default_factory=dict, description="Session context"
+    )
+    created_at: str = Field(..., description="Creation timestamp (ISO format)")
+    expires_at: str = Field(..., description="Expiration timestamp (ISO format)")

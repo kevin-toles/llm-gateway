@@ -152,3 +152,33 @@ class ChatCompletionRequest(BaseModel):
         if not v:
             raise ValueError("messages must not be empty")
         return v
+
+
+# =============================================================================
+# Session Models - WBS 2.2.3.2
+# =============================================================================
+
+
+class SessionCreateRequest(BaseModel):
+    """
+    Session creation request model.
+
+    WBS 2.2.3.2.1: SessionCreateRequest model for POST /v1/sessions.
+
+    Pattern: Pydantic validation (Sinha pp. 193-195)
+    Pattern: Optional[T] with None (ANTI_PATTERN §1.1)
+
+    Attributes:
+        ttl_seconds: Optional session TTL in seconds (uses default from settings)
+        context: Optional initial context data
+    """
+
+    ttl_seconds: Optional[int] = Field(
+        default=None,
+        ge=60,
+        description="Session TTL in seconds (default from settings)",
+    )
+    context: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Initial context data for the session",
+    )

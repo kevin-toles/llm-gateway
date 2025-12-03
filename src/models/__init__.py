@@ -1,4 +1,4 @@
-"""Models Package - WBS 2.2.2.2 Request/Response Models.
+"""Models Package - WBS 2.2.2.2, WBS 2.2.3.2 Request/Response Models.
 
 This package contains Pydantic models for API request/response validation.
 
@@ -7,7 +7,7 @@ Reference Documents:
 - ANTI_PATTERN_ANALYSIS: Section 1.1 Optional types with explicit None
 """
 
-from src.models.requests import ChatCompletionRequest, Message, Tool
+from src.models.requests import ChatCompletionRequest, Message, SessionCreateRequest, Tool
 from src.models.responses import (
     ChatCompletionChunk,
     ChatCompletionResponse,
@@ -15,6 +15,7 @@ from src.models.responses import (
     ChoiceMessage,
     ChunkChoice,
     ChunkDelta,
+    SessionResponse,
     Usage,
 )
 from src.models.tools import (
@@ -27,6 +28,7 @@ __all__ = [
     # Requests
     "ChatCompletionRequest",
     "Message",
+    "SessionCreateRequest",
     "Tool",
     # Responses
     "ChatCompletionChunk",
@@ -35,6 +37,7 @@ __all__ = [
     "ChoiceMessage",
     "ChunkChoice",
     "ChunkDelta",
+    "SessionResponse",
     "Usage",
     # Tools
     "ToolDefinition",

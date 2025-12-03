@@ -20,6 +20,75 @@ This document tracks all implementation changes, their rationale, and git commit
 
 ## 2025-12-02
 
+### CL-009: WBS 2.2.3 Sessions Endpoints - TDD Implementation
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-02 ~23:30 UTC |
+| **WBS Item** | 2.2.3.1, 2.2.3.2, 2.2.3.3 |
+| **Change Type** | Feature |
+| **Summary** | Implemented sessions endpoints (POST, GET, DELETE) following TDD cycle |
+| **Files Changed** | `src/api/routes/sessions.py`, `src/models/requests.py`, `src/models/responses.py`, `tests/unit/api/test_sessions.py`, `src/api/routes/__init__.py`, `src/models/__init__.py` |
+| **Rationale** | WBS 2.2.3 requires session management endpoints per ARCHITECTURE.md lines 195-197. |
+| **Git Commit** | `pending` |
+
+**Document Analysis Results:**
+- ARCHITECTURE.md lines 195-197: POST, GET, DELETE /v1/sessions
+- ARCHITECTURE.md lines 215-219: Session Manager specification (TTL, Redis)
+- Sinha pp. 89-91: Router separation and DI patterns
+- Sinha pp. 193-195: Pydantic model validation
+- ANTI_PATTERN §1.1: Optional[T] with None default
+- ANTI_PATTERN §4.1: Extract operations to service class
+
+**TDD Cycle:**
+- **RED**: 28 tests written for sessions endpoints (all failed initially - import error)
+- **GREEN**: Implemented sessions.py router with SessionService
+- **REFACTOR**: Updated docstrings, fixed mock fixtures, updated __init__.py exports
+
+**Implementation Details:**
+- Created `src/api/routes/sessions.py` with router prefix `/v1/sessions`
+- Created `SessionService` class with in-memory stub (async for Redis compatibility)
+- Added `SessionCreateRequest` model to requests.py
+- Added `SessionResponse` model to responses.py
+- POST returns 201, GET returns 200, DELETE returns 204
+- SessionError → 404 Not Found with error detail
+
+**Decision Log Entry:**
+- WBS 2.2.3.3.7 PUT: DEFERRED - Not in ARCHITECTURE.md specification
+
+**New Endpoints:**
+| Method | Endpoint | Status Code | Description |
+|--------|----------|-------------|-------------|
+| POST | `/v1/sessions` | 201 | Create new session |
+| GET | `/v1/sessions/{id}` | 200 | Get session state |
+| DELETE | `/v1/sessions/{id}` | 204 | Delete session |
+
+**Tests Added:** 28 new tests (200→228)
+
+---
+
+### Decision Log: WBS 2.2.3.3.7 PUT Session Update - Deferred
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-02 ~23:00 UTC |
+| **WBS Item** | 2.2.3.3.7 |
+| **Decision** | DEFER - PUT endpoint not implemented in initial sessions scope |
+| **Rationale** | ARCHITECTURE.md (lines 195-197) specifies only POST, GET, DELETE for sessions. PUT not included in architecture specification. Per GUIDELINES hierarchy, architecture documents take precedence. |
+
+**Analysis:**
+
+| WBS Requirement | ARCHITECTURE.md Support | Decision |
+|-----------------|------------------------|----------|
+| 2.2.3.3.1 POST create | ✅ Line 195: `POST /v1/sessions` | Implement |
+| 2.2.3.3.2 GET retrieve | ✅ Line 196: `GET /v1/sessions/{id}` | Implement |
+| 2.2.3.3.5 DELETE remove | ✅ Line 197: `DELETE /v1/sessions/{id}` | Implement |
+| 2.2.3.3.7 PUT update | ❌ Not in ARCHITECTURE.md | **Defer** |
+
+**Re-evaluation Trigger:** If ARCHITECTURE.md is updated to include PUT endpoint, revisit this decision.
+
+---
+
 ### CL-008: WBS 2.2.2.3.5 Tool Calls Response Handling - Verification & Tests
 
 | Field | Value |
@@ -312,3 +381,4 @@ Step 3 - Conflict Identification:
 | 2.2.2.2.9 session_id | 2025-12-02 | 3 | 193 |
 | 2.2.2.3.9 Provider Error 502 | 2025-12-02 | 3 | 196 |
 | 2.2.2.3.5 Tool Calls Response | 2025-12-02 | 4 | 200 |
+| 2.2.3 Sessions Endpoints | 2025-12-02 | 28 | 228 |
