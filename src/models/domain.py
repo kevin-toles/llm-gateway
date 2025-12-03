@@ -1,24 +1,29 @@
 """
-Domain Models - WBS 2.4.1.2 Tool Definition Schema
+Domain Models - WBS 2.4.1.2 Tool Definition Schema, WBS 2.5.1.2 Session Models
 
-This module contains domain models for the tool system, including
-tool definitions, tool calls, and tool results.
+This module contains domain models for the tool system and session management,
+including tool definitions, tool calls, tool results, messages, and sessions.
 
 Reference Documents:
 - ARCHITECTURE.md: Line 70 - domain.py "Domain models (Message, Tool, etc.)"
+- ARCHITECTURE.md: Session Manager - "Creates sessions with TTL, Stores conversation history"
 - GUIDELINES pp. 276: Domain modeling with Pydantic or @dataclass(frozen=True)
 - GUIDELINES pp. 1510-1569: Tool inventory patterns, tool_calls format
+- GUIDELINES pp. 2153: "production systems often require external state stores (Redis)"
+- GUIDELINES pp. 2257: "AI model gateways must manage stateful context windows"
 - ANTI_PATTERN_ANALYSIS §1.1: Optional types with explicit None
+- ANTI_PATTERN_ANALYSIS §1.5: Mutable default arguments
 
 Pattern: Domain models as value objects (Percival & Gregory pp. 59-65)
 Pattern: Pydantic for validation at API boundaries (Sinha pp. 193-195)
 
 Note: These models are distinct from the request/response Tool model in
-requests.py. These are internal domain models used by the tool registry
-and executor.
+requests.py. These are internal domain models used by the tool registry,
+executor, and session management.
 """
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from pydantic import BaseModel, Field
@@ -250,3 +255,114 @@ class ToolResult(BaseModel):
             "tool_call_id": self.tool_call_id,
             "content": self.content,
         }
+
+
+# =============================================================================
+# WBS 2.5.1.2.7: Message Model
+# =============================================================================
+
+
+class Message(BaseModel):
+    """
+    A message in a conversation session.
+
+    WBS 2.5.1.2.7: Message model (role, content, tool_calls, tool_results).
+
+    Represents a single message in the conversation history. Messages can
+    be from the user, assistant, system, or tool (for tool results).
+
+    Pattern: Value object for conversation history
+    Pattern: Compatible with OpenAI/Anthropic message formats
+    Reference: GUIDELINES pp. 2257 - context windows and conversation history
+
+    Attributes:
+        role: The role of the message sender (user, assistant, system, tool).
+        content: The text content of the message (can be None for tool_calls).
+        tool_calls: Optional list of tool calls requested by the assistant.
+        tool_results: Optional list of tool results (for tool role messages).
+
+    Example:
+        >>> msg = Message(role="user", content="What is Python?")
+        >>> assistant_msg = Message(
+        ...     role="assistant",
+        ...     content=None,
+        ...     tool_calls=[{"id": "call_1", "name": "search", "arguments": {...}}]
+        ... )
+    """
+
+    role: str = Field(..., description="Message role (user, assistant, system, tool)")
+    content: Optional[str] = Field(
+        default=None,
+        description="Message text content (can be None for tool_calls messages)",
+    )
+    tool_calls: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        description="Tool calls requested by the assistant",
+    )
+    tool_results: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        description="Tool execution results (for tool role messages)",
+    )
+
+
+# =============================================================================
+# WBS 2.5.1.2.1-6: Session Model
+# =============================================================================
+
+
+class Session(BaseModel):
+    """
+    A conversation session with history and metadata.
+
+    WBS 2.5.1.2.1-6: Session model with id, messages, context, timestamps.
+
+    Represents a stateful conversation session that maintains message history
+    and metadata across multiple turns. Sessions have a TTL and expire after
+    the configured duration.
+
+    Pattern: Aggregate root for conversation state
+    Pattern: Repository pattern for persistence (SessionStore)
+    Reference: ARCHITECTURE.md - Session Manager
+    Reference: GUIDELINES pp. 2153 - external state stores (Redis)
+
+    Attributes:
+        id: Unique session identifier (UUID string).
+        messages: List of messages in the conversation history.
+        context: Additional metadata for the session (user_id, model, etc.).
+        created_at: When the session was created.
+        expires_at: When the session expires (TTL).
+
+    Example:
+        >>> from datetime import datetime, timedelta, timezone
+        >>> session = Session(
+        ...     id="sess_abc123",
+        ...     messages=[Message(role="user", content="Hello")],
+        ...     context={"user_id": "u_123", "model": "claude-3-sonnet"},
+        ...     created_at=datetime.now(timezone.utc),
+        ...     expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        ... )
+    """
+
+    id: str = Field(..., description="Unique session identifier (UUID)")
+    messages: list[Message] = Field(
+        default_factory=list,
+        description="Conversation history (list of messages)",
+    )
+    context: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional session metadata",
+    )
+    created_at: datetime = Field(..., description="Session creation timestamp")
+    expires_at: datetime = Field(..., description="Session expiration timestamp")
+
+    @property
+    def is_expired(self) -> bool:
+        """
+        Check if the session has expired.
+
+        WBS 2.5.1.2.6: Session can determine if expired.
+
+        Returns:
+            True if current time is past expires_at, False otherwise.
+        """
+        return datetime.now(timezone.utc) > self.expires_at
