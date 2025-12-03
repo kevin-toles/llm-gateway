@@ -18,6 +18,61 @@ This document tracks all implementation changes, their rationale, and git commit
 
 ---
 
+## 2025-12-03
+
+### CL-010: WBS 2.2.5/2.2.6 API Middleware & Dependencies - TDD Implementation
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-03 ~00:30 UTC |
+| **WBS Item** | 2.2.5.1, 2.2.5.2, 2.2.6.1 |
+| **Change Type** | Feature |
+| **Summary** | Implemented API middleware (logging, rate limiting) and dependency injection following TDD cycle |
+| **Files Changed** | `src/api/middleware/__init__.py`, `src/api/middleware/logging.py`, `src/api/middleware/rate_limit.py`, `src/api/deps.py`, `src/api/__init__.py`, `tests/unit/api/middleware/__init__.py`, `tests/unit/api/middleware/test_logging.py`, `tests/unit/api/middleware/test_rate_limit.py`, `tests/unit/api/test_deps.py` |
+| **Rationale** | WBS 2.2.5 requires request logging and rate limiting middleware. WBS 2.2.6 requires centralized dependency injection per ARCHITECTURE.md lines 26-31. |
+| **Git Commit** | `dba9d15` |
+
+**Document Analysis Results:**
+- ARCHITECTURE.md lines 26-31: Middleware structure (auth.py, rate_limit.py, logging.py)
+- ARCHITECTURE.md line 32: deps.py for FastAPI dependencies
+- Sinha pp. 89-91: Dependency injection patterns
+- ANTI_PATTERN §1.1: Optional[T] with None default
+
+**TDD Cycle:**
+- **RED**: 43 tests written (14 logging + 16 rate_limit + 13 deps)
+- **GREEN**: Implemented all middleware and dependency modules
+- **REFACTOR**: Updated `src/api/__init__.py` exports
+
+**Implementation Details:**
+
+**WBS 2.2.5.1 Logging Middleware:**
+- Created `src/api/middleware/logging.py` with `RequestLoggingMiddleware`
+- Logs request method, path, duration, status code
+- Redacts sensitive headers (Authorization, API-Key)
+- Uses structlog for structured logging
+
+**WBS 2.2.5.2 Rate Limiting Middleware:**
+- Created `src/api/middleware/rate_limit.py` with `RateLimitMiddleware`
+- Token bucket algorithm with configurable limits
+- X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset headers
+- Returns 429 with Retry-After when limit exceeded
+- In-memory storage (TODO: Redis for distributed rate limiting in WBS 2.3)
+
+**WBS 2.2.6.1 Dependencies:**
+- Created `src/api/deps.py` with centralized DI functions
+- `get_settings()` - Returns Settings singleton
+- `get_redis()` - Returns Redis client (stub for WBS 2.3)
+- `get_chat_service()` - Returns ChatService instance
+- `get_session_manager()` - Returns SessionManager instance
+- `get_tool_executor()` - Returns ToolExecutor instance
+
+**Decision Log Entry:**
+- WBS 2.2.5.3 Auth Middleware: DEFERRED - Marked as "Optional" in WBS specification
+
+**Tests Added:** 43 new tests (228→271)
+
+---
+
 ## 2025-12-02
 
 ### CL-009: WBS 2.2.3 Sessions Endpoints - TDD Implementation
