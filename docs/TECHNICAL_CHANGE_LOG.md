@@ -30,7 +30,7 @@ This document tracks all implementation changes, their rationale, and git commit
 | **Summary** | Verified tool_calls response handling and added 4 tests to document compliance |
 | **Files Changed** | `tests/unit/api/test_chat.py` |
 | **Rationale** | WBS 2.2.2.3.5 "Handle tool calls if present in response" - verified existing implementation already supports this. Added tests for documentation and regression prevention. |
-| **Git Commit** | Pending |
+| **Git Commit** | `78834d1` |
 
 **Document Analysis Results:**
 - AI Engineering pp. 1463-1587: Tool/function calling patterns
