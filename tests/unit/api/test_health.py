@@ -163,6 +163,69 @@ class TestMetricsEndpoint:
         
         assert "llm_gateway_errors_total" in content
 
+    # =========================================================================
+    # WBS 2.2.1.3.4 RED: /metrics includes provider-specific metrics
+    # =========================================================================
+
+    def test_metrics_includes_provider_request_count(self, client: TestClient):
+        """
+        WBS 2.2.1.3.4: Metrics must include provider-specific request counts.
+
+        Pattern: Domain-specific metrics in business-relevant terms (GUIDELINES line 2309)
+        Reference: ARCHITECTURE.md lists providers: anthropic, openai, ollama
+
+        Expected Prometheus metrics:
+        - llm_gateway_provider_requests_total{provider="anthropic"}
+        - llm_gateway_provider_requests_total{provider="openai"}
+        - llm_gateway_provider_requests_total{provider="ollama"}
+        """
+        response = client.get("/metrics")
+        content = response.text
+
+        # Provider-specific request counters with labels
+        assert "llm_gateway_provider_requests_total" in content
+        assert 'provider="anthropic"' in content
+        assert 'provider="openai"' in content
+        assert 'provider="ollama"' in content
+
+    def test_metrics_includes_provider_latency(self, client: TestClient):
+        """
+        WBS 2.2.1.3.4: Metrics must include provider-specific latency.
+
+        Pattern: Service metrics - response times per provider (Newman p. 273-275)
+        """
+        response = client.get("/metrics")
+        content = response.text
+
+        # Provider-specific latency histogram
+        assert "llm_gateway_provider_latency_seconds" in content
+        assert 'provider="anthropic"' in content or "anthropic" in content
+
+    def test_metrics_includes_provider_errors(self, client: TestClient):
+        """
+        WBS 2.2.1.3.4: Metrics must include provider-specific error counts.
+
+        Pattern: Service metrics - error rates per provider (Newman p. 273-275)
+        """
+        response = client.get("/metrics")
+        content = response.text
+
+        # Provider-specific error counters
+        assert "llm_gateway_provider_errors_total" in content
+
+    def test_metrics_includes_token_usage(self, client: TestClient):
+        """
+        WBS 2.2.1.3.4: Metrics must include token usage tracking.
+
+        Pattern: Domain-specific metrics - "token usage tracking" (GUIDELINES line 2309)
+        Reference: ARCHITECTURE.md - Operational Controls include "Token/cost tracking per request"
+        """
+        response = client.get("/metrics")
+        content = response.text
+
+        # Token usage metrics per provider
+        assert "llm_gateway_tokens_total" in content
+
 
 class TestHealthService:
     """
@@ -190,6 +253,93 @@ class TestHealthService:
         service = HealthService()
         result = await service.check_redis()
         assert isinstance(result, bool)
+
+
+class TestMetricsServiceProviderMethods:
+    """
+    Test suite for MetricsService provider-specific methods - WBS 2.2.1.3.4
+
+    Pattern: Domain-specific metrics in business-relevant terms (GUIDELINES line 2309)
+    Reference: ARCHITECTURE.md - Provider Router supports anthropic, openai, ollama
+    """
+
+    def test_increment_provider_request_updates_count(self):
+        """
+        WBS 2.2.1.3.4: Provider request counter should increment correctly.
+        """
+        from src.api.routes.health import MetricsService
+
+        service = MetricsService()
+        service.increment_provider_request("anthropic")
+        service.increment_provider_request("anthropic")
+        service.increment_provider_request("openai")
+
+        metrics = service.get_prometheus_metrics()
+        assert 'llm_gateway_provider_requests_total{provider="anthropic"} 2' in metrics
+        assert 'llm_gateway_provider_requests_total{provider="openai"} 1' in metrics
+
+    def test_increment_provider_error_updates_count(self):
+        """
+        WBS 2.2.1.3.4: Provider error counter should increment correctly.
+        """
+        from src.api.routes.health import MetricsService
+
+        service = MetricsService()
+        service.increment_provider_error("ollama")
+
+        metrics = service.get_prometheus_metrics()
+        assert 'llm_gateway_provider_errors_total{provider="ollama"} 1' in metrics
+
+    def test_record_provider_latency_updates_sum_and_count(self):
+        """
+        WBS 2.2.1.3.4: Provider latency should update sum and count.
+
+        Pattern: Service metrics - response times per provider (Newman p. 273-275)
+        """
+        from src.api.routes.health import MetricsService
+
+        service = MetricsService()
+        service.record_provider_latency("anthropic", 0.5)
+        service.record_provider_latency("anthropic", 0.3)
+
+        metrics = service.get_prometheus_metrics()
+        assert 'llm_gateway_provider_latency_seconds_sum{provider="anthropic"} 0.800000' in metrics
+        assert 'llm_gateway_provider_latency_seconds_count{provider="anthropic"} 2' in metrics
+
+    def test_record_provider_tokens_updates_count(self):
+        """
+        WBS 2.2.1.3.4: Token usage should update per provider.
+
+        Pattern: Domain-specific metrics - "token usage tracking" (GUIDELINES line 2309)
+        """
+        from src.api.routes.health import MetricsService
+
+        service = MetricsService()
+        service.record_provider_tokens("openai", 150)
+        service.record_provider_tokens("openai", 200)
+
+        metrics = service.get_prometheus_metrics()
+        assert 'llm_gateway_tokens_total{provider="openai"} 350' in metrics
+
+    def test_unknown_provider_ignored_gracefully(self):
+        """
+        Unknown providers should be ignored without error.
+
+        Pattern: Graceful degradation (Building Microservices p. 274)
+        Anti-pattern avoided: §3.1 Bare Except - no exception raised
+        """
+        from src.api.routes.health import MetricsService
+
+        service = MetricsService()
+        # Should not raise exception
+        service.increment_provider_request("unknown_provider")
+        service.increment_provider_error("unknown_provider")
+        service.record_provider_latency("unknown_provider", 1.0)
+        service.record_provider_tokens("unknown_provider", 100)
+
+        # Metrics should still be valid
+        metrics = service.get_prometheus_metrics()
+        assert "llm_gateway_provider_requests_total" in metrics
 
 
 # =============================================================================

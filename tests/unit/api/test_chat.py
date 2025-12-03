@@ -189,6 +189,54 @@ class TestChatCompletionsOptionalParams:
     # Pattern: Optional types with explicit None (ANTI_PATTERN §1.1)
     # =========================================================================
 
+    def test_chat_completions_accepts_session_id(
+        self, client: TestClient, mock_chat_service: MagicMock
+    ):
+        """
+        WBS 2.2.2.2.9: Request may include 'session_id' parameter.
+
+        Pattern: Session management (ARCHITECTURE.md - Session Manager)
+        """
+        payload = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "session_id": "sess-12345",
+        }
+        response = client.post("/v1/chat/completions", json=payload)
+        assert response.status_code == 200
+
+    def test_session_id_field_exists_in_request_model(self):
+        """
+        WBS 2.2.2.2.9: ChatCompletionRequest must have session_id field.
+
+        Pattern: Optional types with explicit None (ANTI_PATTERN §1.1)
+        """
+        from src.models.requests import ChatCompletionRequest
+
+        # Create request with session_id
+        request = ChatCompletionRequest(
+            model="gpt-4",
+            messages=[{"role": "user", "content": "Hello"}],
+            session_id="sess-12345",
+        )
+        assert hasattr(request, "session_id")
+        assert request.session_id == "sess-12345"
+
+    def test_session_id_is_optional(self):
+        """
+        WBS 2.2.2.2.9: session_id should be optional with None default.
+
+        Pattern: Optional types with explicit None (ANTI_PATTERN §1.1)
+        """
+        from src.models.requests import ChatCompletionRequest
+
+        # Create request without session_id
+        request = ChatCompletionRequest(
+            model="gpt-4",
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+        assert request.session_id is None
+
     def test_chat_completions_accepts_temperature(
         self, client: TestClient, mock_chat_service: MagicMock
     ):

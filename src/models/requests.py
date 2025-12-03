@@ -131,6 +131,11 @@ class ChatCompletionRequest(BaseModel):
     )
     user: Optional[str] = Field(default=None, description="End-user identifier")
     seed: Optional[int] = Field(default=None, description="Random seed")
+    # WBS 2.2.2.2.9: Session ID for conversation continuity
+    # Reference: ARCHITECTURE.md - Session Manager stores conversation history
+    session_id: Optional[str] = Field(
+        default=None, description="Session ID for conversation continuity"
+    )
 
     # ==========================================================================
     # Validators - Pattern: Field validators (Sinha p. 195)
