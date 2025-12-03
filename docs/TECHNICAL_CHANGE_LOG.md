@@ -30,7 +30,7 @@ This document tracks all implementation changes, their rationale, and git commit
 | **Summary** | Added provider error handling to chat completions endpoint following TDD cycle |
 | **Files Changed** | `src/api/routes/chat.py`, `tests/unit/api/test_chat.py` |
 | **Rationale** | WBS 2.2.2.3.9 requires provider errors to return 502 Bad Gateway. Gap identified during Document Analysis - no exception handling existed. |
-| **Git Commit** | Pending |
+| **Git Commit** | `a0d3306` |
 
 **Document Analysis Results:**
 - GUIDELINES (Newman pp. 273-275): "Service meshes and API gateways should translate internal service failures into appropriate HTTP status codes... 502 Bad Gateway indicates the upstream service failed."
