@@ -12,10 +12,20 @@ Reference Documents:
 
 WBS Items:
 - 2.6.1: Chat Service Implementation
-- 2.6.2: Cost Tracker (future)
-- 2.6.3: Response Cache (future)
+- 2.6.2: Cost Tracker
+- 2.6.3: Response Cache
 """
 
+from src.services.cache import CacheError, ResponseCache
 from src.services.chat import ChatService, ChatServiceError
+from src.services.cost_tracker import CostTracker, CostTrackerError, UsageSummary
 
-__all__ = ["ChatService", "ChatServiceError"]
+__all__ = [
+    "CacheError",
+    "ChatService",
+    "ChatServiceError",
+    "CostTracker",
+    "CostTrackerError",
+    "ResponseCache",
+    "UsageSummary",
+]
