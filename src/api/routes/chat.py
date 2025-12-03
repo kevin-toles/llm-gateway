@@ -23,9 +23,10 @@ import uuid
 import logging
 from typing import Optional, AsyncGenerator, Union
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse, JSONResponse
 
+from src.core.exceptions import ProviderError
 from src.models.requests import ChatCompletionRequest
 from src.models.responses import (
     ChatCompletionResponse,
@@ -84,11 +85,15 @@ class ChatService:
             ChatCompletionResponse: The completion response
 
         Note:
-            This is a stub implementation. In production, this would:
-            1. Route to the appropriate LLM provider
+            This is a stub implementation that uses async for future LLM provider
+            integration. In production, this would:
+            1. Route to the appropriate LLM provider (async HTTP calls)
             2. Handle token counting
             3. Implement caching strategy
             4. Apply rate limiting
+            
+            The async keyword is intentionally retained for API compatibility
+            with future implementations that require async I/O.
         """
         # Generate response ID
         response_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
@@ -270,17 +275,19 @@ router = APIRouter(prefix="/v1/chat", tags=["Chat"])
 async def create_chat_completion(
     request: ChatCompletionRequest,
     chat_service: ChatService = Depends(get_chat_service),
-) -> Union[ChatCompletionResponse, StreamingResponse]:
+) -> Union[ChatCompletionResponse, StreamingResponse, JSONResponse]:
     """
     Create a chat completion (streaming or non-streaming).
 
     WBS 2.2.2.3.1: POST /v1/chat/completions endpoint
     WBS 2.2.2.3.2: Returns OpenAI-compatible response
+    WBS 2.2.2.3.9: Provider errors return 502 Bad Gateway
     WBS 2.2.3.2.1: Supports streaming with stream=true
 
     Pattern: Dependency injection for service layer (Sinha p. 90)
     Pattern: Pydantic request validation (Sinha pp. 193-195)
     Pattern: Iterator protocol with yield for streaming (GUIDELINES p. 2149)
+    Pattern: Error translation (Newman pp. 273-275)
 
     Args:
         request: Chat completion request with messages and parameters
@@ -289,19 +296,42 @@ async def create_chat_completion(
     Returns:
         ChatCompletionResponse: Full response (non-streaming)
         StreamingResponse: SSE stream (streaming)
+        JSONResponse: Error response with 502 status
 
     Raises:
         HTTPException 422: Request validation failed
+        JSONResponse 502: Provider error (upstream failure)
     """
     logger.debug(f"Chat completion request: model={request.model}, stream={request.stream}")
 
-    if request.stream:
-        return StreamingResponse(
-            _stream_sse_generator(chat_service, request),
-            media_type="text/event-stream",
-        )
+    try:
+        if request.stream:
+            return StreamingResponse(
+                _stream_sse_generator(chat_service, request),
+                media_type="text/event-stream",
+            )
 
-    return await chat_service.create_completion(request)
+        return await chat_service.create_completion(request)
+
+    except ProviderError as e:
+        # WBS 2.2.2.3.9: Translate provider errors to 502 Bad Gateway
+        # Pattern: Error translation (Newman pp. 273-275)
+        # Pattern: Exception logging (ANTI_PATTERN §3.1)
+        logger.error(
+            f"Provider error during chat completion: provider={e.provider}, "
+            f"message={e.message}, status_code={e.status_code}"
+        )
+        return JSONResponse(
+            status_code=502,
+            content={
+                "error": {
+                    "message": e.message,
+                    "code": e.error_code,
+                    "provider": e.provider,
+                    "type": "provider_error",
+                }
+            },
+        )
 
 
 async def _stream_sse_generator(

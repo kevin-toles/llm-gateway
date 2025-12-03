@@ -390,6 +390,100 @@ class TestChatService:
         assert isinstance(service, ChatService)
 
 
+class TestProviderErrorHandling:
+    """
+    Test suite for provider error handling - WBS 2.2.2.3.9
+
+    Pattern: Service mesh error translation (Newman pp. 273-275)
+    Pattern: Specific exceptions with context (ANTI_PATTERN §3.1)
+
+    Reference: "Service meshes and API gateways should translate internal
+    service failures into appropriate HTTP status codes... 502 Bad Gateway
+    indicates the upstream service failed."
+    """
+
+    def test_provider_error_returns_502(self, client: TestClient):
+        """
+        WBS 2.2.2.3.9: Provider error must return 502 Bad Gateway.
+
+        Pattern: Error translation (Newman pp. 273-275)
+        """
+        from src.core.exceptions import ProviderError
+
+        # Mock ChatService to raise ProviderError
+        with patch(
+            "src.api.routes.chat.ChatService.create_completion",
+            side_effect=ProviderError(
+                message="Provider API unavailable",
+                provider="anthropic",
+                status_code=503,
+            ),
+        ):
+            payload = {
+                "model": "claude-3-sonnet",
+                "messages": [{"role": "user", "content": "Hello"}],
+            }
+            response = client.post("/v1/chat/completions", json=payload)
+
+            assert response.status_code == 502
+            data = response.json()
+            assert "error" in data
+
+    def test_provider_error_includes_error_details(self, client: TestClient):
+        """
+        WBS 2.2.2.3.9: 502 response must include error details.
+
+        Pattern: Error context (ANTI_PATTERN §3.1)
+        """
+        from src.core.exceptions import ProviderError
+
+        with patch(
+            "src.api.routes.chat.ChatService.create_completion",
+            side_effect=ProviderError(
+                message="Rate limit exceeded",
+                provider="openai",
+                status_code=429,
+            ),
+        ):
+            payload = {
+                "model": "gpt-4",
+                "messages": [{"role": "user", "content": "Hello"}],
+            }
+            response = client.post("/v1/chat/completions", json=payload)
+
+            assert response.status_code == 502
+            data = response.json()
+            assert "error" in data
+            assert "message" in data["error"]
+            assert "code" in data["error"]
+
+    def test_provider_error_logs_exception(self, client: TestClient):
+        """
+        WBS 2.2.2.3.9: Provider errors must be logged for debugging.
+
+        Pattern: Exception logging (ANTI_PATTERN §3.1)
+        """
+        from src.core.exceptions import ProviderError
+
+        with patch(
+            "src.api.routes.chat.ChatService.create_completion",
+            side_effect=ProviderError(
+                message="Connection timeout",
+                provider="ollama",
+            ),
+        ):
+            with patch("src.api.routes.chat.logger") as mock_logger:
+                payload = {
+                    "model": "llama2",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                }
+                response = client.post("/v1/chat/completions", json=payload)
+
+                assert response.status_code == 502
+                # Verify error was logged
+                mock_logger.error.assert_called()
+
+
 class TestRequestResponseModels:
     """
     Test suite for Pydantic models - WBS 2.2.2.2
