@@ -16,9 +16,10 @@ from typing import Any, AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-# Import routers - WBS 2.1.1.1.4, 2.2.1, 2.2.2, 2.2.4
+# Import routers - WBS 2.1.1.1.4, 2.2.1, 2.2.2, 2.2.3, 2.2.4
 from src.api.routes.health import router as health_router
 from src.api.routes.chat import router as chat_router
+from src.api.routes.sessions import router as sessions_router
 from src.api.routes.tools import router as tools_router
 
 # Application metadata
@@ -103,6 +104,7 @@ app.add_middleware(
 # Include routers - WBS 2.1.1.1.4
 app.include_router(health_router)
 app.include_router(chat_router)
+app.include_router(sessions_router)
 app.include_router(tools_router)
 
 
