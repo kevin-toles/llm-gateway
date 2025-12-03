@@ -30,7 +30,7 @@ This document tracks all implementation changes, their rationale, and git commit
 | **Summary** | Added session_id field to ChatCompletionRequest following TDD cycle |
 | **Files Changed** | `src/models/requests.py`, `tests/unit/api/test_chat.py` |
 | **Rationale** | WBS 2.2.2.2.9 requires session_id field for conversation continuity. Gap identified during Document Analysis. |
-| **Git Commit** | `e3128bd` |
+| **Git Commit** | `94dec4b` |
 
 **Document Analysis Results:**
 - ARCHITECTURE.md: Session Manager stores conversation history in Redis
@@ -59,7 +59,7 @@ This document tracks all implementation changes, their rationale, and git commit
 | **Summary** | Implemented provider-specific metrics following TDD RED→GREEN→REFACTOR cycle |
 | **Files Changed** | `src/api/routes/health.py`, `tests/unit/api/test_health.py` |
 | **Rationale** | WBS 2.2.1.3.4 requires provider-specific metrics. Gap identified during Document Analysis - original implementation only had global metrics. |
-| **Git Commit** | `e3128bd` |
+| **Git Commit** | `94dec4b` |
 
 **Document Analysis Results:**
 - GUIDELINES line 2309: "domain-specific metrics in business-relevant terms"
