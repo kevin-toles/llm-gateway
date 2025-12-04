@@ -107,24 +107,34 @@ def add_correlation_id(
 
 
 def add_timestamp(
-    logger: logging.Logger, method_name: str, event_dict: EventDict
+    logger: logging.Logger, _method_name: str, event_dict: EventDict
 ) -> EventDict:
     """
     Add ISO 8601 timestamp to log event.
 
     WBS 2.8.1.1.4: Add timestamp processor.
+    
+    Args:
+        logger: The logger instance (unused but required by structlog interface)
+        _method_name: The log method name (unused but required by structlog interface)
+        event_dict: The event dictionary to process
     """
     event_dict["timestamp"] = datetime.now(timezone.utc).isoformat()
     return event_dict
 
 
 def add_logger_name(
-    logger: logging.Logger, method_name: str, event_dict: EventDict
+    logger: logging.Logger, _method_name: str, event_dict: EventDict
 ) -> EventDict:
     """
     Add logger name to log event.
 
     WBS 2.8.1.1.4: Add logger name processor.
+    
+    Args:
+        logger: The logger instance
+        _method_name: The log method name (unused but required by structlog interface)
+        event_dict: The event dictionary to process
     """
     # Logger name is stored as _logger in bound logger
     if hasattr(logger, "name"):
@@ -133,10 +143,15 @@ def add_logger_name(
 
 
 def rename_level(
-    logger: logging.Logger, method_name: str, event_dict: EventDict
+    logger: logging.Logger, _method_name: str, event_dict: EventDict
 ) -> EventDict:
     """
     Rename log_level to level for cleaner output.
+    
+    Args:
+        logger: The logger instance (unused but required by structlog interface)
+        _method_name: The log method name (unused but required by structlog interface)
+        event_dict: The event dictionary to process
     """
     if "log_level" in event_dict:
         event_dict["level"] = event_dict.pop("log_level")

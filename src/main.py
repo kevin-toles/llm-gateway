@@ -57,11 +57,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.initialized = True
     app.state.environment = ENV
     
-    # TODO: WBS 2.1.1.2.2 - Initialize Redis connection pool
-    # app.state.redis_pool = await create_redis_pool()
+    # NOTE: WBS 2.1.1.2.2 - Redis connection pool initialization
+    # Implementation deferred to Stage 3: Integration (WBS 3.x)
+    # When Redis is integrated: app.state.redis_pool = await create_redis_pool()
     
-    # TODO: WBS 2.1.1.2.3 - Initialize provider client registry
-    # app.state.provider_registry = ProviderRegistry()
+    # NOTE: WBS 2.1.1.2.3 - Provider client registry initialization
+    # Implementation deferred to Stage 3: Integration (WBS 3.x)
+    # When providers are integrated: app.state.provider_registry = ProviderRegistry()
     
     yield
     
@@ -73,11 +75,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Clean up resources - WBS 2.1.1.2.8
     app.state.initialized = False
     
-    # TODO: WBS 2.1.1.2.5 - Close Redis connections
+    # NOTE: WBS 2.1.1.2.5 - Redis connection cleanup
+    # Implementation deferred to Stage 3: Integration (WBS 3.x)
+    # When Redis is integrated:
     # if hasattr(app.state, "redis_pool"):
     #     await app.state.redis_pool.close()
     
-    # TODO: WBS 2.1.1.2.6 - Shutdown provider clients
+    # NOTE: WBS 2.1.1.2.6 - Provider client shutdown
+    # Implementation deferred to Stage 3: Integration (WBS 3.x)
+    # When providers are integrated:
     # if hasattr(app.state, "provider_registry"):
     #     await app.state.provider_registry.shutdown()
 

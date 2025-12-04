@@ -315,7 +315,8 @@ class ToolExecutor:
             """Execute a single tool call, catching validation errors."""
             try:
                 return await self.execute(tool_call)
-            except (ToolExecutionError, ToolValidationError) as e:
+            except ToolExecutionError as e:
+                # ToolValidationError inherits from ToolExecutionError, so this catches both
                 return ToolResult(
                     tool_call_id=tool_call.id,
                     content=f"Tool error: {e}",
