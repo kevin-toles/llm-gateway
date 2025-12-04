@@ -7,6 +7,7 @@ Reference Documents:
 - ARCHITECTURE.md line 29: rate_limit.py - Request rate limiting
 - ARCHITECTURE.md line 221: Rate limiting per client
 - GUIDELINES: Token bucket algorithm for rate limiting
+- GUIDELINES §2309: Connection pooling and bulkhead patterns for resource isolation
 - ANTI_PATTERN_ANALYSIS: §3.1 No bare except clauses
 
 WBS Items:
@@ -15,8 +16,10 @@ WBS Items:
 - 2.2.5.2.4: Configure limits from settings
 - 2.2.5.2.5: Return 429 when limit exceeded
 - 2.2.5.2.6: Add X-RateLimit-* headers to responses
+- 2.2.5.2.9: Thread-safe token bucket with per-client locking
 """
 
+import asyncio
 import time
 import logging
 from abc import ABC, abstractmethod
@@ -103,11 +106,18 @@ class InMemoryRateLimiter(RateLimiter):
 
     WBS 2.2.5.2.2: Token bucket implementation.
     WBS 2.2.5.2.4: Configure limits from settings.
+    WBS 2.2.5.2.9: Thread-safe with per-client asyncio.Lock.
 
-    Pattern: Token bucket algorithm
+    Pattern: Token bucket algorithm with per-client locking
     - Tokens are added at a fixed rate (requests_per_minute / 60 per second)
     - Each request consumes one token
     - Burst allows temporary spikes above the rate
+    - Per-client locks prevent read-modify-write race conditions
+
+    Reference: GUIDELINES §2309 - Newman bulkhead pattern recommends
+    "using different connection pools for each downstream service"
+    to prevent resource exhaustion. We apply the same principle here
+    with per-client locks.
 
     Note: This implementation is suitable for single-instance deployments.
     For distributed deployments, use RedisRateLimiter.
@@ -131,6 +141,24 @@ class InMemoryRateLimiter(RateLimiter):
         self.burst = burst
         self._refill_rate = requests_per_minute / 60.0  # tokens per second
         self._buckets: dict[str, tuple[float, float]] = {}  # client_id -> (tokens, last_update)
+        self._locks: dict[str, asyncio.Lock] = {}  # Per-client locks for thread safety
+        self._global_lock = asyncio.Lock()  # Lock for creating new client locks
+
+    def _get_lock(self, client_id: str) -> asyncio.Lock:
+        """
+        Get or create a lock for a specific client.
+        
+        WBS 2.2.5.2.9: Per-client locking for thread safety.
+        
+        Args:
+            client_id: Client identifier
+            
+        Returns:
+            asyncio.Lock for the client
+        """
+        if client_id not in self._locks:
+            self._locks[client_id] = asyncio.Lock()
+        return self._locks[client_id]
 
     async def is_allowed(self, client_id: str) -> RateLimitResult:
         """
@@ -138,6 +166,7 @@ class InMemoryRateLimiter(RateLimiter):
 
         WBS 2.2.5.2.7: Allow requests within limit.
         WBS 2.2.5.2.8: Block requests exceeding limit.
+        WBS 2.2.5.2.9: Thread-safe with per-client locking.
 
         Args:
             client_id: Client identifier (IP, API key, etc.)
@@ -145,51 +174,57 @@ class InMemoryRateLimiter(RateLimiter):
         Returns:
             RateLimitResult with rate limit status
         """
-        now = time.time()
-        window_duration = 60  # 1 minute window
+        # Get or create lock for this client (brief global lock)
+        async with self._global_lock:
+            lock = self._get_lock(client_id)
+        
+        # Per-client lock prevents race conditions on bucket access
+        async with lock:
+            now = time.time()
+            window_duration = 60  # 1 minute window
 
-        # Get or create bucket for client
-        if client_id in self._buckets:
-            tokens, last_update = self._buckets[client_id]
-        else:
-            tokens = float(self.burst)
-            last_update = now
+            # Get or create bucket for client
+            if client_id in self._buckets:
+                tokens, last_update = self._buckets[client_id]
+            else:
+                tokens = float(self.burst)
+                last_update = now
 
-        # Refill tokens based on time elapsed
-        elapsed = now - last_update
-        tokens = min(self.burst, tokens + elapsed * self._refill_rate)
+            # Refill tokens based on time elapsed
+            elapsed = now - last_update
+            tokens = min(self.burst, tokens + elapsed * self._refill_rate)
 
-        # Calculate reset time (when bucket would be full)
-        tokens_needed = self.burst - tokens
-        if tokens_needed > 0:
-            reset_at = int(now + tokens_needed / self._refill_rate)
-        else:
-            reset_at = int(now + window_duration)
+            # Calculate reset time (when bucket would be full)
+            tokens_needed = self.burst - tokens
+            if tokens_needed > 0:
+                reset_at = int(now + tokens_needed / self._refill_rate)
+            else:
+                reset_at = int(now + window_duration)
 
-        # Check if request is allowed
-        if tokens >= 1:
-            # Consume a token
-            tokens -= 1
-            self._buckets[client_id] = (tokens, now)
+            # Check if request is allowed
+            if tokens >= 1:
+                # Consume a token
+                tokens -= 1
+                self._buckets[client_id] = (tokens, now)
 
-            return RateLimitResult(
-                allowed=True,
-                limit=self.requests_per_minute,
-                remaining=int(tokens),
-                reset_at=reset_at,
-            )
-        else:
-            # Rate limited
-            retry_after = int((1 - tokens) / self._refill_rate) + 1
-            self._buckets[client_id] = (tokens, now)
+                return RateLimitResult(
+                    allowed=True,
+                    limit=self.requests_per_minute,
+                    remaining=int(tokens),
+                    reset_at=reset_at,
+                )
+            else:
+                # Rate limited
+                retry_after = int((1 - tokens) / self._refill_rate) + 1
+                self._buckets[client_id] = (tokens, now)
 
-            return RateLimitResult(
-                allowed=False,
-                limit=self.requests_per_minute,
-                remaining=0,
-                reset_at=reset_at,
-                retry_after=retry_after,
-            )
+                return RateLimitResult(
+                    allowed=False,
+                    limit=self.requests_per_minute,
+                    remaining=0,
+                    reset_at=reset_at,
+                    retry_after=retry_after,
+                )
 
 
 # =============================================================================

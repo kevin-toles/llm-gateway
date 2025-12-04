@@ -75,14 +75,16 @@ Create the name of the service account to use.
 {{/*
 Redis URL helper - constructs Redis connection URL.
 Uses subchart Redis if enabled, otherwise uses config.redisUrl.
+
+Issue 19 Fix (Comp_Static_Analysis_Report_20251203.md):
+When auth is enabled, password is NOT embedded in URL. Instead:
+- Redis host/port returned without password
+- Password provided separately via LLM_GATEWAY_REDIS_PASSWORD env var (secretKeyRef)
+- Application constructs full URL at runtime (security best practice)
 */}}
 {{- define "llm-gateway.redisUrl" -}}
 {{- if .Values.redis.enabled }}
-{{- if .Values.redis.auth.enabled }}
-{{- printf "redis://:%s@%s-redis-master:6379" .Values.redis.auth.password .Release.Name }}
-{{- else }}
 {{- printf "redis://%s-redis-master:6379" .Release.Name }}
-{{- end }}
 {{- else }}
 {{- .Values.config.redisUrl }}
 {{- end }}

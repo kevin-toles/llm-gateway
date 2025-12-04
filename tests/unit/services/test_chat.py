@@ -743,6 +743,76 @@ class TestChatServiceErrors:
 # =============================================================================
 
 
+class TestChatServiceSessionToolCalls:
+    """Tests for session history with tool calls.
+    
+    Issue 28 Fix: Ensure tool call and tool result messages are saved to session.
+    """
+
+    @pytest.mark.asyncio
+    async def test_save_to_session_includes_tool_call_messages(
+        self, mock_router, mock_executor, mock_session_manager, mock_provider, tool_call_response, sample_response
+    ) -> None:
+        """
+        Issue 28 Fix: _save_to_session should save tool call and tool result messages.
+        
+        When tool calls are executed, the accumulated messages (including assistant
+        tool_calls and tool results) should be saved to session, not just the
+        original request messages.
+        
+        RED: This test should fail because current implementation only saves
+        request.messages, not the accumulated messages with tool calls.
+        """
+        from src.services.chat import ChatService
+        from src.models.domain import ToolResult
+
+        # Setup: First call returns tool_calls, second returns final response
+        mock_provider.complete.side_effect = [tool_call_response, sample_response]
+        mock_executor.execute_batch.return_value = [
+            ToolResult(tool_call_id="call_abc123", content="Sunny, 72°F", is_error=False)
+        ]
+
+        service = ChatService(
+            router=mock_router,
+            executor=mock_executor,
+            session_manager=mock_session_manager,
+        )
+
+        request = ChatCompletionRequest(
+            model="test-model",
+            messages=[Message(role="user", content="What's the weather?")],
+            session_id="test_session_123",  # Enable session persistence
+        )
+
+        await service.complete(request)
+
+        # Verify add_message was called
+        assert mock_session_manager.add_message.call_count >= 3, (
+            "Expected at least 3 add_message calls: "
+            "user message, assistant tool_call, tool result, final assistant"
+        )
+        
+        # Extract all saved messages
+        saved_messages = [
+            call.args[1] for call in mock_session_manager.add_message.call_args_list
+        ]
+        saved_roles = [msg.role for msg in saved_messages]
+        
+        # Should have: user -> assistant (with tool_calls) -> tool -> assistant (final)
+        assert "tool" in saved_roles, (
+            f"Tool result message not saved to session. Saved roles: {saved_roles}"
+        )
+        
+        # Verify assistant message with tool_calls was saved
+        assistant_messages = [msg for msg in saved_messages if msg.role == "assistant"]
+        tool_call_message = next(
+            (msg for msg in assistant_messages if msg.tool_calls), None
+        )
+        assert tool_call_message is not None, (
+            "Assistant message with tool_calls not saved to session"
+        )
+
+
 class TestChatServiceImportable:
     """Tests for module importability."""
 

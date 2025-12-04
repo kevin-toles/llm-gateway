@@ -355,16 +355,71 @@ class ChatService:
 
         WBS 2.6.1.1.13: Save messages to session if session_id provided.
 
+        Issue 28 Fix: Save ALL accumulated messages including tool calls and tool
+        results, not just the original request messages.
+
         Args:
             request: The original request.
-            messages: The conversation messages.
+            messages: The accumulated conversation messages (includes tool calls).
             response: The final response.
         """
         if not request.session_id or not self._session_manager:
             return
 
-        # Save user messages (skip history that was already in session)
-        for msg in request.messages:
+        # Issue 28 Fix: Calculate where new messages start in the accumulated list.
+        # The messages list structure is: [history...] + [request.messages] + [tool calls/results]
+        # History count = total messages - (request messages + any new tool messages)
+        # Simpler: Find where request.messages starts by computing:
+        # history_count = len(messages) - len(request.messages) - new_tool_messages
+        # 
+        # Actually, we need to save everything that wasn't already in history.
+        # The request.messages are always at the start of "new" content after history.
+        # So we find where request messages start in accumulated list.
+        
+        # Calculate: history_count = messages index where request.messages[0] appears
+        # This is: len(messages) - len(request.messages) - tool_messages_count
+        # But tool_messages_count is unknown at this point.
+        # 
+        # Simplest approach: history = len(messages) - count of new messages
+        # New messages = request.messages + all messages after that (tool calls, etc.)
+        # So find the index of first request message, that's the history_count
+        
+        # Even simpler: Calculate the offset as the difference
+        # messages = [history] + [new_user_msgs from request] + [tool_stuff]
+        # We know: request.messages are the new user messages
+        # So history_count = total - (request.messages + tool_messages)
+        # Without calling get_history again, we can compute:
+        # new_message_count = len(messages) - history_count
+        # But we need history_count to compute that...
+        #
+        # Best approach: Save only messages AFTER the first request message.
+        # Find where request.messages[0] starts in the messages list.
+        
+        original_msg_count = len(request.messages)
+        total_msg_count = len(messages)
+        
+        # New messages start after history. We know the structure is:
+        # [history...] + [request.messages...] + [tool_calls/results...]
+        # The first request message is at index = history_count
+        # So: new_messages = messages[history_count:]
+        # And: history_count = total - (original_msg_count + tool_messages)
+        # 
+        # We can find history_count by matching the start of request.messages
+        # Alternatively, since tool messages are added AFTER request.messages,
+        # anything in messages beyond original history should be saved.
+        # 
+        # Simplest correct approach: Find first occurrence of request.messages[0]
+        history_count = 0
+        if request.messages and messages:
+            first_new_msg = request.messages[0]
+            for i, msg in enumerate(messages):
+                if (msg.role == first_new_msg.role and 
+                    msg.content == first_new_msg.content):
+                    history_count = i
+                    break
+
+        # Save accumulated messages (skip already-saved history)
+        for msg in messages[history_count:]:
             domain_msg = DomainMessage(
                 role=msg.role,
                 content=msg.content,

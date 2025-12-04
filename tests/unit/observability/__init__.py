@@ -29,6 +29,23 @@ from unittest.mock import patch
 
 import pytest
 
+# Module constants for test strings
+TEST_MESSAGE = "test message"
+
+
+# =============================================================================
+# Fixture to reset logging state between tests
+# =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def reset_logging_state():
+    """Reset logging configuration before each test."""
+    from src.observability.logging import reset_logging
+    reset_logging()
+    yield
+    reset_logging()
+
 
 # =============================================================================
 # WBS 2.8.1.1.1-2: Package and Module Tests
@@ -70,13 +87,13 @@ class TestJSONFormatter:
         # Capture log output
         captured = io.StringIO()
         logger = get_logger("test", stream=captured)
-        logger.info("test message")
+        logger.info(TEST_MESSAGE)
 
         output = captured.getvalue().strip()
         # Should be valid JSON
         log_entry = json.loads(output)
         assert "event" in log_entry
-        assert log_entry["event"] == "test message"
+        assert log_entry["event"] == TEST_MESSAGE
 
     def test_log_entry_is_single_line(self) -> None:
         """
@@ -86,7 +103,7 @@ class TestJSONFormatter:
 
         captured = io.StringIO()
         logger = get_logger("test", stream=captured)
-        logger.info("test message")
+        logger.info(TEST_MESSAGE)
 
         output = captured.getvalue()
         lines = [l for l in output.split("\n") if l.strip()]
@@ -109,7 +126,7 @@ class TestLogProcessors:
 
         captured = io.StringIO()
         logger = get_logger("test", stream=captured)
-        logger.info("test message")
+        logger.info(TEST_MESSAGE)
 
         log_entry = json.loads(captured.getvalue().strip())
         assert "timestamp" in log_entry
@@ -122,7 +139,7 @@ class TestLogProcessors:
 
         captured = io.StringIO()
         logger = get_logger("test", stream=captured)
-        logger.info("test message")
+        logger.info(TEST_MESSAGE)
 
         log_entry = json.loads(captured.getvalue().strip())
         assert "level" in log_entry
@@ -136,7 +153,7 @@ class TestLogProcessors:
 
         captured = io.StringIO()
         logger = get_logger("my_module", stream=captured)
-        logger.info("test message")
+        logger.info(TEST_MESSAGE)
 
         log_entry = json.loads(captured.getvalue().strip())
         assert "logger" in log_entry
@@ -187,7 +204,7 @@ class TestCorrelationID:
         logger = get_logger("test", stream=captured)
 
         set_correlation_id("req-12345")
-        logger.info("test message")
+        logger.info(TEST_MESSAGE)
 
         log_entry = json.loads(captured.getvalue().strip())
         assert "correlation_id" in log_entry
@@ -203,7 +220,7 @@ class TestCorrelationID:
 
         captured = io.StringIO()
         logger = get_logger("test", stream=captured)
-        logger.info("test message")
+        logger.info(TEST_MESSAGE)
 
         log_entry = json.loads(captured.getvalue().strip())
         # correlation_id should not be present or be None
@@ -355,3 +372,59 @@ class TestStructuredData:
 
         log_entry = json.loads(captured.getvalue().strip())
         assert log_entry["request"]["method"] == "POST"
+
+
+# =============================================================================
+# WBS 2.8.1.1.16: Configuration Singleton Tests (Issue 16)
+# =============================================================================
+
+
+class TestConfigurationSingleton:
+    """Tests for singleton structlog configuration.
+    
+    Issue 16: structlog.configure() should be called once at module load,
+    not on every get_logger() call.
+    """
+
+    def test_configure_logging_callable(self) -> None:
+        """
+        WBS 2.8.1.1.16: configure_logging() function exists.
+        
+        Issue 16: Module should expose configure_logging() for explicit setup.
+        """
+        from src.observability.logging import configure_logging
+        
+        assert callable(configure_logging)
+
+    def test_get_logger_does_not_call_configure(self) -> None:
+        """
+        WBS 2.8.1.1.16: get_logger() does not call structlog.configure().
+        
+        Issue 16: Configuration should happen once at startup,
+        not on every get_logger() call.
+        """
+        from src.observability import logging as obs_logging
+        from unittest.mock import patch
+        
+        # Reset state
+        obs_logging._configured = False
+        obs_logging.configure_logging()  # Configure once
+        
+        with patch.object(obs_logging.structlog, 'configure') as mock_configure:
+            # Get multiple loggers
+            obs_logging.get_logger("test1")
+            obs_logging.get_logger("test2")
+            obs_logging.get_logger("test3")
+            
+            # configure() should NOT have been called by get_logger
+            mock_configure.assert_not_called()
+
+    def test_module_level_configuration_flag(self) -> None:
+        """
+        WBS 2.8.1.1.16: Module has _configured flag.
+        
+        Issue 16: Track configuration state to avoid reconfiguring.
+        """
+        from src.observability import logging as obs_logging
+        
+        assert hasattr(obs_logging, '_configured')

@@ -224,9 +224,19 @@ jobs:
 
       - name: Validate templates with kubeconform
         run: |
-          # Install kubeconform
-          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz | tar xz
+          # Issue 21 Fix: Install kubeconform with checksum verification
+          # Supply chain security: verify binary integrity before execution
+          KUBECONFORM_VERSION="v0.7.0"
+          KUBECONFORM_CHECKSUM="c31518ddd122663b3f3aa874cfe8178cb0988de944f29c74a0b9260920d115d3"
+          
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" -o kubeconform.tar.gz
+          
+          # Verify checksum before extracting
+          echo "${KUBECONFORM_CHECKSUM}  kubeconform.tar.gz" | sha256sum -c -
+          
+          tar xzf kubeconform.tar.gz
           chmod +x kubeconform
+          rm kubeconform.tar.gz
 
           # Validate all environments
           for env in dev staging prod; do

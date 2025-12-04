@@ -140,3 +140,55 @@ tests:
     asserts:
       - isNotEmpty:
           path: spec.template.metadata.annotations["checksum/config"]
+
+  # =============================================================================
+  # Issue 19 Fix: Redis Password Security Tests
+  # Redis password should be sourced from secretKeyRef, not interpolated in URL
+  # =============================================================================
+  - it: should use secretKeyRef for Redis password when auth enabled
+    template: templates/deployment.yaml
+    set:
+      redis:
+        enabled: true
+        auth:
+          enabled: true
+          existingSecret: "my-redis-secret"
+          existingSecretPasswordKey: "redis-password"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LLM_GATEWAY_REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: my-redis-secret
+                key: redis-password
+
+  - it: should not expose Redis password in Redis URL when auth enabled
+    template: templates/deployment.yaml
+    set:
+      redis:
+        enabled: true
+        auth:
+          enabled: true
+          existingSecret: "my-redis-secret"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LLM_GATEWAY_REDIS_URL
+            value: "redis://RELEASE-NAME-redis-master:6379"
+
+  - it: should include Redis password in URL only when auth disabled
+    template: templates/deployment.yaml
+    set:
+      redis:
+        enabled: true
+        auth:
+          enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LLM_GATEWAY_REDIS_URL
+            value: "redis://RELEASE-NAME-redis-master:6379"

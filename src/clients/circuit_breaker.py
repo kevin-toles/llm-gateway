@@ -7,6 +7,7 @@ Reference Documents:
 - DEPLOYMENT_IMPLEMENTATION_PLAN.md: Lines 2817-2826 - Circuit Breaker WBS
 - Newman (Building Microservices): Circuit breaker pattern for preventing cascading failures
 - Nygard (Release It!): Stability patterns
+- GUIDELINES §2309: Connection pooling and resource isolation
 
 Pattern: Circuit Breaker
 - CLOSED: Normal operation, requests pass through
@@ -14,8 +15,10 @@ Pattern: Circuit Breaker
 - HALF_OPEN: Testing recovery, limited requests pass through
 
 Anti-Pattern §1.1 Avoided: Uses Optional[T] with explicit None defaults
+WBS 2.7.2.1.10: Thread-safe state transitions with asyncio.Lock
 """
 
+import asyncio
 import time
 from enum import Enum
 from typing import Any, Awaitable, Callable, Optional, TypeVar
@@ -112,6 +115,9 @@ class CircuitBreaker:
         self._state = CircuitState.CLOSED
         self._failure_count = 0
         self._last_failure_time: Optional[float] = None
+        
+        # WBS 2.7.2.1.10: Thread-safe state transitions
+        self._lock = asyncio.Lock()
 
     # =========================================================================
     # Properties
@@ -137,12 +143,30 @@ class CircuitBreaker:
         """
         Current state of the circuit breaker.
 
-        This property checks if enough time has passed to transition
-        from OPEN to HALF_OPEN.
+        Note: This property returns the cached state. For thread-safe
+        state transitions (OPEN → HALF_OPEN), use check_and_update_state().
+        
+        WBS 2.7.2.1.10: Avoid mutation in property getter to prevent race conditions.
         """
-        if self._state == CircuitState.OPEN and self._should_attempt_recovery():
-            self._state = CircuitState.HALF_OPEN
         return self._state
+
+    async def check_and_update_state(self) -> CircuitState:
+        """
+        Check and atomically update circuit state if needed.
+        
+        WBS 2.7.2.1.10: Thread-safe state transition method.
+        
+        This method safely transitions from OPEN → HALF_OPEN when the
+        recovery timeout has elapsed, using a lock to prevent race conditions
+        when multiple coroutines check simultaneously.
+        
+        Returns:
+            Current CircuitState after any transitions
+        """
+        async with self._lock:
+            if self._state == CircuitState.OPEN and self._should_attempt_recovery():
+                self._state = CircuitState.HALF_OPEN
+            return self._state
 
     @property
     def failure_count(self) -> int:
@@ -151,8 +175,12 @@ class CircuitBreaker:
 
     @property
     def is_open(self) -> bool:
-        """Whether the circuit is currently open (failing fast)."""
-        return self.state == CircuitState.OPEN
+        """Whether the circuit is currently open (failing fast).
+        
+        Note: For async contexts, prefer using check_and_update_state()
+        for accurate state including recovery transitions.
+        """
+        return self._state == CircuitState.OPEN
 
     # =========================================================================
     # State Management
@@ -220,8 +248,9 @@ class CircuitBreaker:
             CircuitOpenError: If the circuit is open
             Exception: Any exception raised by the wrapped function
         """
-        # Check if circuit is open
-        if self.state == CircuitState.OPEN:
+        # Check if circuit is open (with thread-safe state update)
+        current_state = await self.check_and_update_state()
+        if current_state == CircuitState.OPEN:
             raise CircuitOpenError(self._name)
 
         try:

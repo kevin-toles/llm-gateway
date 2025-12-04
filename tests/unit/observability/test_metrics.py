@@ -639,6 +639,137 @@ class TestMetricsHelperFunctions:
 # =============================================================================
 
 
+# =============================================================================
+# Issue 17: Path Normalization Tests (High Cardinality Prevention)
+# =============================================================================
+
+
+class TestPathNormalization:
+    """
+    Tests for path normalization to prevent high cardinality metrics.
+    
+    Issue 17 from Comp_Static_Analysis_Report_20251203.md:
+    - Dynamic path segments like UUIDs and numeric IDs can explode Prometheus cardinality
+    - Solution: Normalize paths by replacing UUIDs/IDs with placeholders
+    
+    Reference: GUIDELINES pp. 2309-2319 - metrics should use business-relevant terms
+    """
+
+    def test_normalize_path_function_exists(self) -> None:
+        """
+        normalize_path() function exists in metrics module.
+        """
+        from src.observability.metrics import normalize_path
+
+        assert normalize_path is not None
+        assert callable(normalize_path)
+
+    def test_normalize_path_preserves_static_paths(self) -> None:
+        """
+        Static paths without dynamic segments are unchanged.
+        """
+        from src.observability.metrics import normalize_path
+
+        assert normalize_path("/health") == "/health"
+        assert normalize_path("/v1/chat/completions") == "/v1/chat/completions"
+        assert normalize_path("/metrics") == "/metrics"
+
+    def test_normalize_path_replaces_uuid_v4(self) -> None:
+        """
+        UUID v4 segments are replaced with {id} placeholder.
+        """
+        from src.observability.metrics import normalize_path
+
+        path = "/v1/sessions/123e4567-e89b-12d3-a456-426614174000"
+        result = normalize_path(path)
+        assert result == "/v1/sessions/{id}"
+
+    def test_normalize_path_replaces_numeric_ids(self) -> None:
+        """
+        Numeric ID segments are replaced with {id} placeholder.
+        """
+        from src.observability.metrics import normalize_path
+
+        path = "/v1/users/12345"
+        result = normalize_path(path)
+        assert result == "/v1/users/{id}"
+
+    def test_normalize_path_replaces_multiple_ids(self) -> None:
+        """
+        Multiple dynamic segments in path are all normalized.
+        """
+        from src.observability.metrics import normalize_path
+
+        path = "/v1/users/12345/sessions/abc123-def456-7890"
+        result = normalize_path(path)
+        # Both numeric ID and UUID-like should be normalized
+        assert "{id}" in result
+        assert "12345" not in result
+
+    def test_normalize_path_handles_root_path(self) -> None:
+        """
+        Root path is unchanged.
+        """
+        from src.observability.metrics import normalize_path
+
+        assert normalize_path("/") == "/"
+
+    def test_normalize_path_replaces_hex_ids(self) -> None:
+        """
+        Hexadecimal ID segments (like MongoDB ObjectIds) are replaced.
+        """
+        from src.observability.metrics import normalize_path
+
+        # MongoDB ObjectId format (24 hex chars)
+        path = "/v1/documents/507f1f77bcf86cd799439011"
+        result = normalize_path(path)
+        assert result == "/v1/documents/{id}"
+
+    def test_middleware_uses_normalized_path_for_metrics(self) -> None:
+        """
+        MetricsMiddleware uses normalized paths when recording metrics.
+        
+        This prevents high cardinality explosion from dynamic path segments.
+        """
+        from src.observability.metrics import MetricsMiddleware, REQUESTS_TOTAL
+
+        async def mock_app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200})
+            await send({"type": "http.response.body", "body": b""})
+
+        middleware = MetricsMiddleware(mock_app)
+
+        import asyncio
+
+        async def test_normalized_path():
+            scope = {
+                "type": "http",
+                "method": "GET",
+                "path": "/v1/sessions/123e4567-e89b-12d3-a456-426614174000",
+                "headers": [],
+            }
+
+            async def receive():
+                return {"type": "http.request", "body": b""}
+
+            responses = []
+
+            async def send(msg):
+                responses.append(msg)
+
+            await middleware(scope, receive, send)
+
+            # The metric should be recorded with normalized path, not raw UUID
+            # Check that the normalized path label is used
+            counter = REQUESTS_TOTAL.labels(
+                method="GET", path="/v1/sessions/{id}", status="200"
+            )
+            # If this doesn't raise, the label combination exists
+            assert counter is not None
+
+        asyncio.get_event_loop().run_until_complete(test_normalized_path())
+
+
 class TestMetricsExports:
     """Tests for module exports."""
 

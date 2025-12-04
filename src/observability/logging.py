@@ -9,6 +9,7 @@ Reference Documents:
 - CODING_PATTERNS: logging.debug/warning/error with context
 
 Pattern: Structured logging for observability
+Pattern: Singleton configuration (configure once at startup)
 Anti-Pattern §1.1 Avoided: Uses Optional[T] with explicit None defaults
 
 WBS Items:
@@ -18,6 +19,7 @@ WBS Items:
 - 2.8.1.1.5: Add correlation ID processor
 - 2.8.1.1.6: Configure based on LOG_LEVEL setting
 - 2.8.1.1.7: Export get_logger() function
+- 2.8.1.1.16: Singleton configuration pattern (Issue 16)
 """
 
 import contextvars
@@ -29,6 +31,13 @@ from typing import Generator, Optional, TextIO
 
 import structlog
 from structlog.types import EventDict, Processor
+
+
+# =============================================================================
+# WBS 2.8.1.1.16: Configuration State Flag (Issue 16)
+# =============================================================================
+
+_configured: bool = False
 
 
 # =============================================================================
@@ -159,6 +168,76 @@ def rename_level(
 
 
 # =============================================================================
+# WBS 2.8.1.1.16: Singleton Configuration (Issue 16)
+# =============================================================================
+
+
+def configure_logging(
+    level: str = "INFO",
+    stream: Optional[TextIO] = None,
+    force: bool = False,
+) -> None:
+    """
+    Configure structlog for the application.
+    
+    WBS 2.8.1.1.16: Singleton configuration function.
+    
+    This should be called once at application startup. Subsequent calls
+    are no-ops to avoid reconfiguration overhead, unless force=True.
+    
+    Args:
+        level: Default log level (DEBUG, INFO, WARNING, ERROR)
+        stream: Output stream (default: sys.stdout)
+        force: Force reconfiguration (for testing only)
+    
+    Example:
+        >>> # In application startup (e.g., main.py)
+        >>> configure_logging(level="DEBUG")
+        >>> logger = get_logger("my_module")
+    """
+    global _configured
+    
+    if _configured and not force:
+        return
+    
+    # Configure processors
+    processors: list[Processor] = [
+        structlog.stdlib.add_log_level,
+        add_timestamp,
+        add_correlation_id,
+        rename_level,
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.JSONRenderer(),
+    ]
+
+    # Configure structlog once
+    structlog.configure(
+        processors=processors,
+        wrapper_class=structlog.make_filtering_bound_logger(
+            _level_to_int(level)
+        ),
+        context_class=dict,
+        logger_factory=structlog.PrintLoggerFactory(file=stream or sys.stdout),
+        cache_logger_on_first_use=False,  # Allow different loggers per call
+    )
+    
+    _configured = True
+
+
+def reset_logging() -> None:
+    """
+    Reset logging configuration state.
+    
+    WBS 2.8.1.1.16: Test utility to reset singleton state.
+    
+    WARNING: This should only be used in tests.
+    """
+    global _configured
+    _configured = False
+
+
+# =============================================================================
 # WBS 2.8.1.1.7: Logger Factory
 # =============================================================================
 
@@ -172,11 +251,12 @@ def get_logger(
     Get a configured structured logger.
 
     WBS 2.8.1.1.7: Export get_logger() function.
+    WBS 2.8.1.1.16: Uses singleton configuration pattern.
 
     Args:
         name: Logger name (typically module name)
-        stream: Output stream (default: sys.stdout)
-        level: Log level (DEBUG, INFO, WARNING, ERROR)
+        stream: Output stream (default: sys.stdout) - used for initial config
+        level: Log level (DEBUG, INFO, WARNING, ERROR) - used for initial config
 
     Returns:
         Configured structlog BoundLogger
@@ -185,27 +265,9 @@ def get_logger(
         >>> logger = get_logger("my_module")
         >>> logger.info("user logged in", user_id="123")
     """
-    # Configure processors
-    processors: list[Processor] = [
-        structlog.stdlib.add_log_level,
-        add_timestamp,
-        add_correlation_id,
-        rename_level,
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
-        structlog.processors.JSONRenderer(),
-    ]
-
-    # Configure structlog
-    structlog.configure(
-        processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(
-            _level_to_int(level)
-        ),
-        context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(file=stream or sys.stdout),
-        cache_logger_on_first_use=False,  # Allow different loggers
-    )
+    # Auto-configure if not already configured (for convenience)
+    # Pass through stream and level for initial configuration
+    configure_logging(level=level, stream=stream)
 
     # Create logger with name bound as context
     return structlog.get_logger().bind(logger=name)

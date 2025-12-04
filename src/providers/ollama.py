@@ -100,16 +100,19 @@ class OllamaProvider(LLMProvider):
     
     Pattern: Ports and Adapters (Hexagonal Architecture)
     Pattern: HTTP Client with timeout (GUIDELINES pp. 2309)
+    Pattern: Connection pooling with reusable client (GUIDELINES §2309)
+    
+    WBS 2.3.4.1.13: Uses reusable httpx.AsyncClient for connection pooling.
     
     Args:
         base_url: URL of the Ollama instance (default: http://localhost:11434).
         timeout: Request timeout in seconds (default: 120.0 for long generations).
         
     Example:
-        >>> provider = OllamaProvider()
-        >>> await provider.refresh_models()  # Fetch available models
-        >>> response = await provider.complete(request)
-        >>> print(response.choices[0].message.content)
+        >>> async with OllamaProvider() as provider:
+        ...     await provider.refresh_models()
+        ...     response = await provider.complete(request)
+        ...     print(response.choices[0].message.content)
     """
 
     DEFAULT_URL = "http://localhost:11434"
@@ -124,16 +127,74 @@ class OllamaProvider(LLMProvider):
         Initialize Ollama provider.
         
         WBS 2.3.4.1.3: Initialize HTTP client for Ollama API.
+        WBS 2.3.4.1.13: Create reusable httpx.AsyncClient for connection pooling.
         
         Args:
             base_url: URL of Ollama instance (default: http://localhost:11434).
             timeout: Request timeout in seconds (default: 120.0).
             
         Pattern: Optional[T] with None defaults (ANTI_PATTERN §1.1)
+        Pattern: Connection pooling (GUIDELINES §2309, Newman bulkhead)
         """
         self._base_url = base_url or self.DEFAULT_URL
         self._timeout = timeout or self.DEFAULT_TIMEOUT
         self._available_models: list[str] = []
+        
+        # WBS 2.3.4.1.13: Reusable client for connection pooling
+        self._client: Optional[httpx.AsyncClient] = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        """
+        Get or create the HTTP client.
+        
+        WBS 2.3.4.1.13: Lazy initialization of reusable client.
+        
+        Returns:
+            Configured httpx.AsyncClient with connection pooling.
+        """
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=self._timeout,
+                limits=httpx.Limits(
+                    max_keepalive_connections=5,
+                    max_connections=10,
+                ),
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """
+        Close the HTTP client and release resources.
+        
+        WBS 2.3.4.1.13: Cleanup method for resource management.
+        
+        Should be called when the provider is no longer needed,
+        or use the async context manager pattern.
+        """
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    async def __aenter__(self) -> "OllamaProvider":
+        """
+        Async context manager entry.
+        
+        WBS 2.3.4.1.13: Support async with statement.
+        """
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any],
+    ) -> None:
+        """
+        Async context manager exit.
+        
+        WBS 2.3.4.1.13: Cleanup on context exit.
+        """
+        await self.close()
 
     # =========================================================================
     # WBS 2.3.4.1.4-7: complete() method
@@ -163,13 +224,14 @@ class OllamaProvider(LLMProvider):
         ollama_request["stream"] = False
         
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.post(
-                    f"{self._base_url}/api/chat",
-                    json=ollama_request,
-                )
-                response.raise_for_status()
-                data = response.json()
+            # WBS 2.3.4.1.13: Use reusable client for connection pooling
+            client = self._get_client()
+            response = await client.post(
+                f"{self._base_url}/api/chat",
+                json=ollama_request,
+            )
+            response.raise_for_status()
+            data = response.json()
                 
         except httpx.ConnectError as e:
             raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
@@ -212,27 +274,28 @@ class OllamaProvider(LLMProvider):
         created = int(time.time())
         
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self._base_url}/api/chat",
-                    json=ollama_request,
-                ) as response:
-                    response.raise_for_status()
+            # WBS 2.3.4.1.13: Use reusable client for connection pooling
+            client = self._get_client()
+            async with client.stream(
+                "POST",
+                f"{self._base_url}/api/chat",
+                json=ollama_request,
+            ) as response:
+                response.raise_for_status()
+                
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
                     
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        
-                        try:
-                            data = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        
-                        chunk = self._transform_chunk(
-                            data, request.model, response_id, created
-                        )
-                        yield chunk
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    
+                    chunk = self._transform_chunk(
+                        data, request.model, response_id, created
+                    )
+                    yield chunk
                         
         except httpx.ConnectError as e:
             raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
@@ -300,10 +363,11 @@ class OllamaProvider(LLMProvider):
             ProviderError: On other API errors.
         """
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.get(f"{self._base_url}/api/tags")
-                response.raise_for_status()
-                data = response.json()
+            # WBS 2.3.4.1.13: Use reusable client for connection pooling
+            client = self._get_client()
+            response = await client.get(f"{self._base_url}/api/tags")
+            response.raise_for_status()
+            data = response.json()
                 
         except httpx.ConnectError as e:
             raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e

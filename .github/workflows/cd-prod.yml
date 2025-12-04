@@ -153,6 +153,11 @@ jobs:
           echo "Current deployed version: $CURRENT"
 
       - name: Helm diff (preview changes)
+        env:
+          # Issue 20 Fix: Pass secrets via env vars instead of CLI args
+          # CLI args are visible in process list and CI logs
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           # Install helm-diff plugin
           helm plugin install https://github.com/databus23/helm-diff || true
@@ -162,12 +167,16 @@ jobs:
             --namespace ${{ env.KUBE_NAMESPACE }} \
             -f deploy/helm/llm-gateway/values-prod.yaml \
             --set image.tag=${{ needs.validate.outputs.version }} \
-            --set secrets.anthropicApiKey=${{ secrets.ANTHROPIC_API_KEY }} \
-            --set secrets.openaiApiKey=${{ secrets.OPENAI_API_KEY }} \
+            --set secrets.anthropicApiKey="${ANTHROPIC_API_KEY}" \
+            --set secrets.openaiApiKey="${OPENAI_API_KEY}" \
             --allow-unreleased || true
 
       - name: Deploy with Helm (dry-run)
         if: ${{ inputs.dry_run == true }}
+        env:
+          # Issue 20 Fix: Pass secrets via env vars instead of CLI args
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           echo "=== DRY RUN MODE ==="
           helm upgrade --install ${{ env.HELM_RELEASE_NAME }} deploy/helm/llm-gateway \
@@ -175,14 +184,18 @@ jobs:
             --create-namespace \
             -f deploy/helm/llm-gateway/values-prod.yaml \
             --set image.tag=${{ needs.validate.outputs.version }} \
-            --set secrets.anthropicApiKey=${{ secrets.ANTHROPIC_API_KEY }} \
-            --set secrets.openaiApiKey=${{ secrets.OPENAI_API_KEY }} \
+            --set secrets.anthropicApiKey="${ANTHROPIC_API_KEY}" \
+            --set secrets.openaiApiKey="${OPENAI_API_KEY}" \
             --dry-run
 
           echo "✅ Dry run completed - no changes applied"
 
       - name: Deploy with Helm
         if: ${{ inputs.dry_run != true }}
+        env:
+          # Issue 20 Fix: Pass secrets via env vars instead of CLI args
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           echo "Deploying version ${{ needs.validate.outputs.version }} to production..."
 
@@ -191,8 +204,8 @@ jobs:
             --create-namespace \
             -f deploy/helm/llm-gateway/values-prod.yaml \
             --set image.tag=${{ needs.validate.outputs.version }} \
-            --set secrets.anthropicApiKey=${{ secrets.ANTHROPIC_API_KEY }} \
-            --set secrets.openaiApiKey=${{ secrets.OPENAI_API_KEY }} \
+            --set secrets.anthropicApiKey="${ANTHROPIC_API_KEY}" \
+            --set secrets.openaiApiKey="${OPENAI_API_KEY}" \
             --wait \
             --timeout 10m \
             --atomic

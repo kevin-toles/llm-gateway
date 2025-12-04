@@ -41,7 +41,7 @@ class TestRateLimitMiddleware:
         """
         WBS 2.2.5.2.1: RateLimitMiddleware class must exist.
         """
-        assert RateLimitMiddleware is not None
+        assert callable(RateLimitMiddleware)
 
     def test_rate_limiter_interface_exists(self):
         """
@@ -49,7 +49,7 @@ class TestRateLimitMiddleware:
 
         Pattern: Strategy pattern for algorithm selection
         """
-        assert RateLimiter is not None
+        assert callable(RateLimiter)
 
     # =========================================================================
     # WBS 2.2.5.2.7: Requests Within Limit Succeed
@@ -219,6 +219,49 @@ class TestInMemoryRateLimiter:
 
         assert result1.allowed is False
         assert result2.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_concurrent_requests_maintain_accurate_token_count(self):
+        """
+        WBS 2.2.5.2.9: Concurrent requests must not cause race conditions.
+        
+        Tests that concurrent access to the token bucket maintains accurate
+        token counts without read-modify-write race conditions.
+        
+        Pattern: asyncio.Lock for per-client synchronization
+        Reference: GUIDELINES - concurrency patterns, Newman bulkhead pattern
+        """
+        import asyncio
+        
+        limiter = InMemoryRateLimiter(requests_per_minute=60, burst=10)
+        
+        # Run 20 concurrent requests for the same client
+        # With burst=10, only 10 should succeed
+        async def make_request():
+            return await limiter.is_allowed("race-test-client")
+        
+        tasks = [make_request() for _ in range(20)]
+        results = await asyncio.gather(*tasks)
+        
+        allowed_count = sum(1 for r in results if r.allowed)
+        blocked_count = sum(1 for r in results if not r.allowed)
+        
+        # Exactly 10 should be allowed (burst size)
+        # Without proper locking, race conditions could allow more
+        assert allowed_count == 10, f"Expected 10 allowed, got {allowed_count}"
+        assert blocked_count == 10, f"Expected 10 blocked, got {blocked_count}"
+
+    @pytest.mark.asyncio
+    async def test_limiter_has_per_client_lock(self):
+        """
+        WBS 2.2.5.2.9: Limiter should use per-client locks.
+        
+        Verifies that the rate limiter uses locking mechanism for thread safety.
+        """
+        limiter = InMemoryRateLimiter(requests_per_minute=60, burst=10)
+        
+        # The limiter should have a locks dictionary
+        assert hasattr(limiter, '_locks'), "Rate limiter should have _locks attribute"
 
 
 # =============================================================================

@@ -243,6 +243,7 @@ class OpenAIProvider(LLMProvider):
         Generate a streaming chat completion response.
         
         WBS 2.3.3.1.7: Implement stream() method.
+        WBS 2.3.3.1.13: Error handling during streaming iteration.
         
         Args:
             request: The chat completion request.
@@ -262,9 +263,24 @@ class OpenAIProvider(LLMProvider):
         # Get stream - OpenAI returns an async generator directly (not awaitable)
         stream = self._client.chat.completions.create(**kwargs)
         
-        # Yield transformed chunks
-        async for chunk in stream:
-            yield self._transform_chunk(chunk)
+        # Yield transformed chunks with error handling
+        try:
+            async for chunk in stream:
+                yield self._transform_chunk(chunk)
+        except Exception as e:
+            # WBS 2.3.3.1.13: Handle errors during streaming same as complete()
+            error_str = str(e).lower()
+            
+            # Check for authentication errors
+            if "authentication" in error_str or "api key" in error_str or "unauthorized" in error_str or "401" in error_str:
+                raise AuthenticationError(str(e), provider="openai") from e
+            
+            # Check for rate limit errors
+            if "rate limit" in error_str or "429" in error_str:
+                raise RateLimitError(str(e)) from e
+            
+            # Other errors - wrap in ProviderError
+            raise ProviderError(str(e), provider="openai") from e
 
     # =========================================================================
     # WBS 2.3.3.1.9: supports_model() method

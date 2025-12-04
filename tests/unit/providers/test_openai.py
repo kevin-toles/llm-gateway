@@ -63,7 +63,7 @@ class TestOpenAIProviderClass:
         from src.providers.openai import OpenAIProvider
 
         provider = OpenAIProvider(api_key="test-key")
-        assert provider is not None
+        assert isinstance(provider, OpenAIProvider)
 
     def test_openai_provider_accepts_optional_base_url(self) -> None:
         """
@@ -77,7 +77,7 @@ class TestOpenAIProviderClass:
             api_key="test-key",
             base_url="https://custom.endpoint.com"
         )
-        assert provider is not None
+        assert isinstance(provider, OpenAIProvider)
 
     def test_openai_provider_accepts_retry_config(self) -> None:
         """
@@ -90,7 +90,7 @@ class TestOpenAIProviderClass:
             max_retries=5,
             retry_delay=0.5,
         )
-        assert provider is not None
+        assert isinstance(provider, OpenAIProvider)
 
 
 # =============================================================================
@@ -349,9 +349,9 @@ class TestOpenAIProviderComplete:
 
             # Verify the call was made with correct parameters
             call_kwargs = mock_client.chat.completions.create.call_args.kwargs
-            assert call_kwargs["temperature"] == 0.7
+            assert call_kwargs["temperature"] == pytest.approx(0.7)
             assert call_kwargs["max_tokens"] == 100
-            assert call_kwargs["top_p"] == 0.9
+            assert call_kwargs["top_p"] == pytest.approx(0.9)
 
 
 # =============================================================================
@@ -648,7 +648,7 @@ class TestOpenAIToolHandler:
         from src.providers.openai import OpenAIToolHandler
 
         handler = OpenAIToolHandler()
-        assert handler is not None
+        assert isinstance(handler, OpenAIToolHandler)
 
     def test_validate_tool_definition_passthrough(self) -> None:
         """
@@ -746,8 +746,8 @@ class TestOpenAIProviderErrors:
         """
         from src.providers.openai import OpenAIProvider, ProviderError
 
-        async def mock_create(**kwargs):
-            raise Exception("API Error: Internal server error")
+        def mock_create(**kwargs):
+            raise RuntimeError("API Error: Internal server error")
 
         with patch("src.providers.openai.AsyncOpenAI") as mock_client_class:
             mock_client = AsyncMock()
@@ -910,4 +910,240 @@ class TestOpenAIProviderToolCalls:
             assert "tools" in call_kwargs
             assert len(call_kwargs["tools"]) == 1
             assert call_kwargs["tools"][0]["function"]["name"] == "get_weather"
+
+
+# =============================================================================
+# WBS 2.3.3.1.13: Stream error handling tests (Issue 14)
+# =============================================================================
+
+
+class TestOpenAIProviderStreamErrors:
+    """Tests for stream() error handling.
+    
+    Issue 14: stream() should handle errors during iteration
+    the same way complete() does via _execute_with_retry.
+    """
+
+    @pytest.fixture
+    def sample_request(self) -> ChatCompletionRequest:
+        """Create a sample streaming request."""
+        return ChatCompletionRequest(
+            model="gpt-4",
+            messages=[Message(role="user", content="Hello")],
+            stream=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_stream_raises_authentication_error_on_auth_failure(
+        self,
+        sample_request: ChatCompletionRequest,
+    ) -> None:
+        """
+        WBS 2.3.3.1.13: stream() raises AuthenticationError on auth failure.
+        
+        Issue 14: Authentication errors during streaming should be wrapped
+        in our AuthenticationError exception, not raise raw SDK exceptions.
+        """
+        from src.providers.openai import OpenAIProvider
+        from src.core.exceptions import AuthenticationError
+
+        async def mock_stream():
+            # Simulate auth error during streaming
+            raise RuntimeError("Error code: 401 - Invalid API key")
+            # Generator must yield before raising to be valid async generator
+            if False:  # pragma: no cover
+                yield
+
+        with patch("src.providers.openai.AsyncOpenAI") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.chat.completions.create = MagicMock(
+                return_value=mock_stream()
+            )
+            mock_client_class.return_value = mock_client
+
+            provider = OpenAIProvider(api_key="test-key")
+
+            with pytest.raises(AuthenticationError):
+                async for chunk in provider.stream(sample_request):
+                    assert chunk is not None  # Process chunk
+
+    @pytest.mark.asyncio
+    async def test_stream_raises_rate_limit_error_on_429(
+        self,
+        sample_request: ChatCompletionRequest,
+    ) -> None:
+        """
+        WBS 2.3.3.1.13: stream() raises RateLimitError on rate limit.
+        
+        Issue 14: Rate limit errors during streaming should be wrapped
+        in our RateLimitError exception.
+        """
+        from src.providers.openai import OpenAIProvider
+        from src.core.exceptions import RateLimitError
+
+        async def mock_stream():
+            # Simulate rate limit error during streaming
+            raise RuntimeError("Error code: 429 - Rate limit exceeded")
+            # Generator must yield before raising to be valid async generator
+            if False:  # pragma: no cover
+                yield
+
+        with patch("src.providers.openai.AsyncOpenAI") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.chat.completions.create = MagicMock(
+                return_value=mock_stream()
+            )
+            mock_client_class.return_value = mock_client
+
+            provider = OpenAIProvider(api_key="test-key")
+
+            with pytest.raises(RateLimitError):
+                async for chunk in provider.stream(sample_request):
+                    assert chunk is not None  # Process chunk
+
+    @pytest.mark.asyncio
+    async def test_stream_raises_provider_error_on_generic_error(
+        self,
+        sample_request: ChatCompletionRequest,
+    ) -> None:
+        """
+        WBS 2.3.3.1.13: stream() raises ProviderError on generic errors.
+        
+        Issue 14: Generic errors during streaming should be wrapped
+        in our ProviderError exception.
+        """
+        from src.providers.openai import OpenAIProvider
+        from src.core.exceptions import ProviderError
+
+        async def mock_stream():
+            # Simulate generic error during streaming
+            raise ConnectionError("Connection reset by peer")
+            # Generator must yield before raising to be valid async generator
+            if False:  # pragma: no cover
+                yield
+
+        with patch("src.providers.openai.AsyncOpenAI") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.chat.completions.create = MagicMock(
+                return_value=mock_stream()
+            )
+            mock_client_class.return_value = mock_client
+
+            provider = OpenAIProvider(api_key="test-key")
+
+            with pytest.raises(ProviderError):
+                async for chunk in provider.stream(sample_request):
+                    assert chunk is not None  # Process chunk
+
+
+# =============================================================================
+# WBS 2.3.3.1.14: SDK exception type check tests (Issue 15)
+# =============================================================================
+
+
+class TestOpenAIProviderRetrySDKExceptions:
+    """Tests for proper SDK exception handling in retry logic.
+    
+    Issue 15: _execute_with_retry should check for OpenAI SDK exceptions
+    (openai.RateLimitError), not just our custom exceptions.
+    """
+
+    @pytest.fixture
+    def sample_request(self) -> ChatCompletionRequest:
+        """Create a sample request."""
+        return ChatCompletionRequest(
+            model="gpt-4",
+            messages=[Message(role="user", content="Hello")],
+        )
+
+    @pytest.mark.asyncio
+    async def test_retry_handles_openai_sdk_rate_limit_error(
+        self,
+        sample_request: ChatCompletionRequest,
+    ) -> None:
+        """
+        WBS 2.3.3.1.14: Retry handles openai.RateLimitError from SDK.
+        
+        Issue 15: The isinstance check should also recognize the SDK's
+        RateLimitError, not just our custom RateLimitError.
+        """
+        from src.providers.openai import OpenAIProvider
+        from src.core.exceptions import RateLimitError
+        import openai
+
+        call_count = 0
+        mock_response = MagicMock()
+        mock_response.id = "chatcmpl-123"
+        mock_response.created = 1677652288
+        mock_response.model = "gpt-4"
+        mock_response.choices = [
+            MagicMock(
+                index=0,
+                message=MagicMock(role="assistant", content="Success!", tool_calls=None),
+                finish_reason="stop",
+                logprobs=None,
+            )
+        ]
+        mock_response.usage = MagicMock(
+            prompt_tokens=5, completion_tokens=5, total_tokens=10
+        )
+        mock_response.system_fingerprint = None
+
+        async def mock_create(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                # Raise the SDK's RateLimitError, not our custom one
+                raise openai.RateLimitError(
+                    message="Rate limit exceeded",
+                    response=MagicMock(status_code=429),
+                    body={"error": {"message": "Rate limit exceeded"}},
+                )
+            return mock_response
+
+        with patch("src.providers.openai.AsyncOpenAI") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.chat.completions.create = mock_create
+            mock_client_class.return_value = mock_client
+
+            provider = OpenAIProvider(api_key="test-key", max_retries=3, retry_delay=0.01)
+            response = await provider.complete(sample_request)
+
+            # Should have retried and succeeded on 3rd attempt
+            assert call_count == 3
+            assert response.choices[0].message.content == "Success!"
+
+    @pytest.mark.asyncio
+    async def test_retry_exhausted_with_sdk_rate_limit_raises_our_error(
+        self,
+        sample_request: ChatCompletionRequest,
+    ) -> None:
+        """
+        WBS 2.3.3.1.14: Exhausted retries with SDK error raises our RateLimitError.
+        
+        Issue 15: When SDK RateLimitError exhausts retries, we should raise
+        our custom RateLimitError for consistency.
+        """
+        from src.providers.openai import OpenAIProvider
+        from src.core.exceptions import RateLimitError
+        import openai
+
+        async def mock_create(**kwargs):
+            # Always raise SDK's RateLimitError
+            raise openai.RateLimitError(
+                message="Rate limit exceeded",
+                response=MagicMock(status_code=429),
+                body={"error": {"message": "Rate limit exceeded"}},
+            )
+
+        with patch("src.providers.openai.AsyncOpenAI") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.chat.completions.create = mock_create
+            mock_client_class.return_value = mock_client
+
+            provider = OpenAIProvider(api_key="test-key", max_retries=2, retry_delay=0.01)
+
+            # Should raise our custom RateLimitError
+            with pytest.raises(RateLimitError):
+                await provider.complete(sample_request)
 

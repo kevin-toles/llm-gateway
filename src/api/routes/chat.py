@@ -50,20 +50,32 @@ DEFAULT_MODEL = os.getenv("LLM_GATEWAY_DEFAULT_MODEL", "gpt-4")
 # Chat Service - WBS 2.2.2.3.9 Service Layer Extraction
 # Pattern: Cognitive complexity reduction (ANTI_PATTERN §4.1)
 # Pattern: Dependency injection (Sinha pp. 89-91)
+#
+# TODO Issue 27 (Comp_Static_Analysis_Report_20251203.md):
+# This stub ChatService should be replaced with the real implementation from
+# src/services/chat.ChatService. The full migration requires:
+# 1. Setting up FastAPI dependency injection for ProviderRouter, ToolExecutor, SessionManager
+# 2. Updating get_chat_service() to wire up real dependencies
+# 3. Creating test fixtures for mocking the real service dependencies
+#
+# The stub is retained for backwards compatibility during incremental migration.
+# Real implementation: src/services/chat.py - ChatService with full provider routing,
+# tool execution, and session management.
 # =============================================================================
 
 
 class ChatService:
     """
-    Service class for chat completion operations.
+    STUB Service class for chat completion operations.
+
+    WARNING: This is a simplified stub implementation used for initial development
+    and testing. For production LLM integration, use src/services/chat.ChatService.
 
     Pattern: Service layer extraction for business logic
     Reference: ANTI_PATTERN_ANALYSIS §4.1 - Extract complex logic to services
 
-    This class enables:
-    1. Dependency injection for testability
-    2. Separation of business logic from routing
-    3. Future extension for LLM provider integration
+    See Also:
+        src/services/chat.ChatService: Full implementation with provider routing
     """
 
     def __init__(self):

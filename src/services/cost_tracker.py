@@ -14,7 +14,6 @@ Anti-Pattern §1.3 Avoided: Uses Pydantic models for data structures
 
 from __future__ import annotations
 
-import json
 import datetime as dt
 from decimal import Decimal
 from typing import TYPE_CHECKING, Optional
@@ -240,6 +239,7 @@ class CostTracker:
 
         WBS 2.6.2.1.4: record_usage method for storing usage data.
         WBS 2.6.2.1.6: Redis storage with daily aggregation.
+        WBS 2.6.2.1.12: Uses atomic HINCRBY/HINCRBYFLOAT for thread safety.
 
         Args:
             model: Model name
@@ -254,65 +254,40 @@ class CostTracker:
             total_tokens = usage.total_tokens
             cost = self.calculate_cost(model, prompt_tokens, completion_tokens)
 
-            # Get current daily usage
+            # Get keys
             daily_key = self._get_daily_key()
-            current_data = await self._redis.get(daily_key)
-
-            if current_data:
-                data = json.loads(current_data)
-                summary = UsageSummary(
-                    prompt_tokens=data.get("prompt_tokens", 0) + prompt_tokens,
-                    completion_tokens=data.get("completion_tokens", 0) + completion_tokens,
-                    total_tokens=data.get("total_tokens", 0) + total_tokens,
-                    total_cost=float(data.get("total_cost", 0)) + cost,
-                    request_count=data.get("request_count", 0) + 1,
-                )
-            else:
-                summary = UsageSummary(
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=total_tokens,
-                    total_cost=cost,
-                    request_count=1,
-                )
-
-            # Store updated daily usage
-            await self._redis.set(
-                daily_key,
-                json.dumps({
-                    "prompt_tokens": summary.prompt_tokens,
-                    "completion_tokens": summary.completion_tokens,
-                    "total_tokens": summary.total_tokens,
-                    "total_cost": str(summary.total_cost),
-                    "request_count": summary.request_count,
-                }),
-            )
-
-            # Update model-specific usage
             model_key = self._get_model_key(model)
-            model_data = await self._redis.get(model_key)
 
-            if model_data:
-                mdata = json.loads(model_data)
-                model_summary = {
-                    "prompt_tokens": mdata.get("prompt_tokens", 0) + prompt_tokens,
-                    "completion_tokens": mdata.get("completion_tokens", 0) + completion_tokens,
-                    "total_tokens": mdata.get("total_tokens", 0) + total_tokens,
-                    "total_cost": float(mdata.get("total_cost", 0)) + cost,
-                    "request_count": mdata.get("request_count", 0) + 1,
-                }
-            else:
-                model_summary = {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens,
-                    "total_cost": cost,
-                    "request_count": 1,
-                }
-
-            await self._redis.set(model_key, json.dumps(model_summary))
-
-            return summary
+            # Use atomic HINCRBY/HINCRBYFLOAT operations on hash
+            # This is thread-safe and prevents race conditions
+            pipe = self._redis.pipeline()
+            
+            # Atomic increments for daily usage
+            pipe.hincrby(daily_key, "prompt_tokens", prompt_tokens)
+            pipe.hincrby(daily_key, "completion_tokens", completion_tokens)
+            pipe.hincrby(daily_key, "total_tokens", total_tokens)
+            pipe.hincrbyfloat(daily_key, "total_cost", cost)
+            pipe.hincrby(daily_key, "request_count", 1)
+            
+            # Atomic increments for model-specific usage
+            pipe.hincrby(model_key, "prompt_tokens", prompt_tokens)
+            pipe.hincrby(model_key, "completion_tokens", completion_tokens)
+            pipe.hincrby(model_key, "total_tokens", total_tokens)
+            pipe.hincrbyfloat(model_key, "total_cost", cost)
+            pipe.hincrby(model_key, "request_count", 1)
+            
+            # Execute pipeline atomically
+            results = await pipe.execute()
+            
+            # Results are the new values after increment
+            # [prompt, completion, total, cost, count] for daily
+            return UsageSummary(
+                prompt_tokens=int(results[0]),
+                completion_tokens=int(results[1]),
+                total_tokens=int(results[2]),
+                total_cost=float(results[3]),
+                request_count=int(results[4]),
+            )
 
         except Exception as e:
             raise CostTrackerError(f"Failed to record usage: {e}") from e
@@ -325,6 +300,7 @@ class CostTracker:
         Get usage summary for a specific day.
 
         WBS 2.6.2.1.7: get_daily_usage method.
+        WBS 2.6.2.1.12: Uses HGETALL to read from hash.
 
         Args:
             date: Date to get usage for (defaults to today)
@@ -334,18 +310,17 @@ class CostTracker:
         """
         try:
             daily_key = self._get_daily_key(date)
-            data = await self._redis.get(daily_key)
+            data = await self._redis.hgetall(daily_key)
 
             if not data:
                 return UsageSummary()
 
-            parsed = json.loads(data)
             return UsageSummary(
-                prompt_tokens=parsed.get("prompt_tokens", 0),
-                completion_tokens=parsed.get("completion_tokens", 0),
-                total_tokens=parsed.get("total_tokens", 0),
-                total_cost=float(parsed.get("total_cost", 0)),
-                request_count=parsed.get("request_count", 0),
+                prompt_tokens=int(data.get("prompt_tokens", 0)),
+                completion_tokens=int(data.get("completion_tokens", 0)),
+                total_tokens=int(data.get("total_tokens", 0)),
+                total_cost=float(data.get("total_cost", 0)),
+                request_count=int(data.get("request_count", 0)),
             )
 
         except Exception as e:
@@ -359,6 +334,7 @@ class CostTracker:
         Get usage breakdown by model for a specific day.
 
         WBS 2.6.2.1.8: get_usage_by_model method.
+        WBS 2.6.2.1.12: Uses HGETALL to read from hash.
 
         Args:
             target_date: Date to get usage for (defaults to today)
@@ -381,15 +357,15 @@ class CostTracker:
                     key_str = key.decode() if isinstance(key, bytes) else key
                     model = key_str.split(":")[-1]
 
-                    data = await self._redis.get(key)
+                    # Read hash data instead of JSON
+                    data = await self._redis.hgetall(key)
                     if data:
-                        parsed = json.loads(data)
                         result[model] = UsageSummary(
-                            prompt_tokens=parsed.get("prompt_tokens", 0),
-                            completion_tokens=parsed.get("completion_tokens", 0),
-                            total_tokens=parsed.get("total_tokens", 0),
-                            total_cost=float(parsed.get("total_cost", 0)),
-                            request_count=parsed.get("request_count", 0),
+                            prompt_tokens=int(data.get("prompt_tokens", 0)),
+                            completion_tokens=int(data.get("completion_tokens", 0)),
+                            total_tokens=int(data.get("total_tokens", 0)),
+                            total_cost=float(data.get("total_cost", 0)),
+                            request_count=int(data.get("request_count", 0)),
                         )
 
                 if cursor == 0:

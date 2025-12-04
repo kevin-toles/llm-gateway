@@ -62,7 +62,7 @@ class TestOllamaProviderClass:
         from src.providers.ollama import OllamaProvider
 
         provider = OllamaProvider(base_url="http://localhost:11434")
-        assert provider is not None
+        assert isinstance(provider, OllamaProvider)
 
     def test_ollama_provider_uses_default_url(self) -> None:
         """
@@ -85,7 +85,40 @@ class TestOllamaProviderClass:
             base_url="http://localhost:11434",
             timeout=60.0,
         )
-        assert provider is not None
+        assert isinstance(provider, OllamaProvider)
+
+    def test_ollama_provider_has_reusable_client(self) -> None:
+        """
+        WBS 2.3.4.1.13: OllamaProvider should have a reusable HTTP client.
+        
+        Pattern: Connection pooling (GUIDELINES §2309)
+        Reference: Newman - bulkhead pattern, separate connection pools
+        """
+        from src.providers.ollama import OllamaProvider
+
+        provider = OllamaProvider()
+        assert hasattr(provider, '_client'), "OllamaProvider should have _client attribute"
+
+    def test_ollama_provider_has_close_method(self) -> None:
+        """
+        WBS 2.3.4.1.13: OllamaProvider should have close() for cleanup.
+        """
+        from src.providers.ollama import OllamaProvider
+
+        provider = OllamaProvider()
+        assert hasattr(provider, 'close'), "OllamaProvider should have close() method"
+        assert callable(provider.close), "close should be callable"
+
+    @pytest.mark.asyncio
+    async def test_ollama_provider_async_context_manager(self) -> None:
+        """
+        WBS 2.3.4.1.13: OllamaProvider should support async context manager.
+        """
+        from src.providers.ollama import OllamaProvider
+
+        provider = OllamaProvider()
+        assert hasattr(provider, '__aenter__'), "OllamaProvider should support __aenter__"
+        assert hasattr(provider, '__aexit__'), "OllamaProvider should support __aexit__"
 
 
 # =============================================================================
@@ -391,7 +424,7 @@ class TestOllamaProviderComplete:
 
             assert request_body["model"] == "llama2"
             assert len(request_body["messages"]) == 2
-            assert request_body["options"]["temperature"] == 0.7
+            assert request_body["options"]["temperature"] == pytest.approx(0.7)
             assert request_body["options"]["num_predict"] == 100  # Ollama uses num_predict
 
 

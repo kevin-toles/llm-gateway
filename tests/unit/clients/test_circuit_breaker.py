@@ -77,7 +77,7 @@ class TestCircuitBreakerClass:
         WBS 2.7.2.1.1: CircuitBreaker class exists.
         """
         from src.clients.circuit_breaker import CircuitBreaker
-        assert CircuitBreaker is not None
+        assert callable(CircuitBreaker)
 
     def test_circuit_state_enum_exists(self) -> None:
         """
@@ -114,7 +114,7 @@ class TestCircuitBreakerConfiguration:
         from src.clients.circuit_breaker import CircuitBreaker
 
         cb = CircuitBreaker(recovery_timeout_seconds=30.0)
-        assert cb.recovery_timeout_seconds == 30.0
+        assert cb.recovery_timeout_seconds == pytest.approx(30.0)
 
     def test_default_failure_threshold(self) -> None:
         """
@@ -265,8 +265,9 @@ class TestCircuitBreakerHalfOpen:
         # Wait for recovery timeout
         await asyncio.sleep(fast_circuit_breaker.recovery_timeout_seconds + 0.05)
 
-        # Check state - should be HALF_OPEN
-        assert fast_circuit_breaker.state == CircuitState.HALF_OPEN
+        # Check state using async method - should be HALF_OPEN
+        current_state = await fast_circuit_breaker.check_and_update_state()
+        assert current_state == CircuitState.HALF_OPEN
 
     @pytest.mark.asyncio
     async def test_success_in_half_open_closes_circuit(
@@ -281,9 +282,10 @@ class TestCircuitBreakerHalfOpen:
         for _ in range(fast_circuit_breaker.failure_threshold):
             fast_circuit_breaker.record_failure()
 
-        # Wait for half-open
+        # Wait for half-open (use async method)
         await asyncio.sleep(fast_circuit_breaker.recovery_timeout_seconds + 0.05)
-        assert fast_circuit_breaker.state == CircuitState.HALF_OPEN
+        current_state = await fast_circuit_breaker.check_and_update_state()
+        assert current_state == CircuitState.HALF_OPEN
 
         # Record success
         fast_circuit_breaker.record_success()
@@ -302,9 +304,10 @@ class TestCircuitBreakerHalfOpen:
         for _ in range(fast_circuit_breaker.failure_threshold):
             fast_circuit_breaker.record_failure()
 
-        # Wait for half-open
+        # Wait for half-open (use async method)
         await asyncio.sleep(fast_circuit_breaker.recovery_timeout_seconds + 0.05)
-        assert fast_circuit_breaker.state == CircuitState.HALF_OPEN
+        current_state = await fast_circuit_breaker.check_and_update_state()
+        assert current_state == CircuitState.HALF_OPEN
 
         # Record failure
         fast_circuit_breaker.record_failure()
@@ -401,7 +404,7 @@ class TestCircuitBreakerErrors:
         CircuitOpenError is defined.
         """
         from src.clients.circuit_breaker import CircuitOpenError
-        assert CircuitOpenError is not None
+        assert issubclass(CircuitOpenError, Exception)
 
     def test_circuit_open_error_is_exception(self) -> None:
         """
@@ -418,6 +421,76 @@ class TestCircuitBreakerErrors:
 
         error = CircuitOpenError(circuit_breaker.name)
         assert circuit_breaker.name in str(error)
+
+
+# =============================================================================
+# Concurrency Safety Tests - WBS 2.7.2.1.10
+# =============================================================================
+
+
+class TestCircuitBreakerConcurrency:
+    """Tests for thread-safe circuit breaker operations."""
+
+    def test_circuit_breaker_has_lock(self) -> None:
+        """
+        WBS 2.7.2.1.10: CircuitBreaker should have a lock for thread safety.
+        """
+        from src.clients.circuit_breaker import CircuitBreaker
+        
+        cb = CircuitBreaker()
+        assert hasattr(cb, '_lock'), "CircuitBreaker should have _lock attribute"
+
+    def test_state_property_does_not_mutate_directly(self) -> None:
+        """
+        WBS 2.7.2.1.10: State property should use a method for safe transition.
+        
+        The state property getter should NOT directly mutate _state
+        to avoid race conditions when multiple coroutines read state
+        simultaneously during the OPEN→HALF_OPEN transition.
+        """
+        from src.clients.circuit_breaker import CircuitBreaker
+        
+        cb = CircuitBreaker()
+        # The check_and_update_state method should exist
+        assert hasattr(cb, 'check_and_update_state'), (
+            "CircuitBreaker should have check_and_update_state method "
+            "for safe state transitions"
+        )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_state_checks_are_serialized(self) -> None:
+        """
+        WBS 2.7.2.1.10: Concurrent state checks should be properly serialized.
+        
+        When multiple coroutines call check_and_update_state while the
+        circuit is OPEN and ready for recovery, only one should transition
+        to HALF_OPEN.
+        """
+        import asyncio
+        from src.clients.circuit_breaker import CircuitBreaker, CircuitState
+        
+        cb = CircuitBreaker(failure_threshold=1, recovery_timeout_seconds=0.01)
+        
+        # Trip the circuit
+        cb.record_failure()
+        assert cb._state == CircuitState.OPEN
+        
+        # Wait for recovery timeout
+        await asyncio.sleep(0.02)
+        
+        # Run multiple concurrent state checks
+        async def check_state():
+            return await cb.check_and_update_state()
+        
+        tasks = [check_state() for _ in range(10)]
+        results = await asyncio.gather(*tasks)
+        
+        # Circuit should be in HALF_OPEN state
+        assert cb._state == CircuitState.HALF_OPEN
+        
+        # All should report consistent state
+        half_open_count = sum(1 for r in results if r == CircuitState.HALF_OPEN)
+        assert half_open_count == len(results), "All checks should see HALF_OPEN state"
 
 
 # =============================================================================

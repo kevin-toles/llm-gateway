@@ -368,3 +368,80 @@ class TestCostTrackerImportable:
         from src.services.cost_tracker import UsageSummary
 
         assert callable(UsageSummary)
+
+
+# =============================================================================
+# WBS 2.6.2.1.12: Atomic Operations Tests (Issue 11)
+# =============================================================================
+
+
+class TestCostTrackerAtomicOperations:
+    """Tests for atomic Redis operations.
+    
+    Issue 11: record_usage should use atomic operations to prevent
+    race conditions under concurrent requests.
+    """
+
+    @pytest.mark.asyncio
+    async def test_record_usage_uses_atomic_increment(
+        self, cost_tracker, fake_redis, sample_usage
+    ) -> None:
+        """
+        WBS 2.6.2.1.12: record_usage uses atomic HINCRBY.
+        
+        Issue 11: Instead of GET-modify-SET, use atomic increments.
+        """
+        import asyncio
+        
+        # Record many concurrent usages
+        tasks = [
+            cost_tracker.record_usage("gpt-4", sample_usage)
+            for _ in range(10)
+        ]
+        await asyncio.gather(*tasks)
+        
+        # All 10 requests should be counted correctly
+        summary = await cost_tracker.get_daily_usage()
+        assert summary.request_count == 10
+        assert summary.total_tokens == 150 * 10  # 1500
+
+    @pytest.mark.asyncio
+    async def test_record_usage_stores_in_hash(
+        self, cost_tracker, fake_redis, sample_usage
+    ) -> None:
+        """
+        WBS 2.6.2.1.12: Data is stored in Redis hash for atomic operations.
+        
+        Issue 11: Use HSET/HINCRBY instead of SET/GET with JSON.
+        """
+        await cost_tracker.record_usage("gpt-4", sample_usage)
+        
+        # Check that data is stored as hash
+        daily_key = cost_tracker._get_daily_key()
+        data_type = await fake_redis.type(daily_key)
+        
+        assert data_type == "hash", "Daily usage should be stored as Redis hash"
+
+    @pytest.mark.asyncio
+    async def test_concurrent_record_usage_no_data_loss(
+        self, cost_tracker, sample_usage
+    ) -> None:
+        """
+        WBS 2.6.2.1.12: Concurrent writes don't lose data.
+        
+        Issue 11: Atomic operations prevent race condition data loss.
+        """
+        import asyncio
+        
+        # Simulate concurrent requests from multiple clients
+        async def record_n_times(n: int):
+            for _ in range(n):
+                await cost_tracker.record_usage("gpt-4", sample_usage)
+        
+        # Run 5 concurrent tasks, each recording 20 times
+        tasks = [record_n_times(20) for _ in range(5)]
+        await asyncio.gather(*tasks)
+        
+        # Should have exactly 100 requests recorded
+        summary = await cost_tracker.get_daily_usage()
+        assert summary.request_count == 100

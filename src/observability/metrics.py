@@ -24,8 +24,13 @@ WBS Items:
 - 2.8.2.5: Define LLM-specific metrics (token usage, cache hits, cost)
 - 2.8.2.6: Create MetricsMiddleware ASGI middleware
 - 2.8.2.7: Expose /metrics endpoint via make_asgi_app()
+
+Issue 17 Fix (Comp_Static_Analysis_Report_20251203.md):
+- Added normalize_path() to prevent high cardinality from dynamic path segments
+- Replaces UUIDs, numeric IDs, and hex IDs with {id} placeholder
 """
 
+import re
 import time
 from typing import Any, Callable, Optional
 
@@ -37,6 +42,63 @@ from prometheus_client import (
     generate_latest,
     make_asgi_app,
 )
+
+# =============================================================================
+# Issue 17 Fix: Path Normalization (High Cardinality Prevention)
+# =============================================================================
+
+# Regex patterns for dynamic path segments that cause high cardinality
+# Order matters: more specific patterns first
+_PATH_PATTERNS = [
+    # UUID v4: 8-4-4-4-12 hex pattern (e.g., 123e4567-e89b-12d3-a456-426614174000)
+    (re.compile(r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"), "/{id}"),
+    # MongoDB ObjectId: 24 hex chars (e.g., 507f1f77bcf86cd799439011)
+    (re.compile(r"/[0-9a-fA-F]{24}(?=/|$)"), "/{id}"),
+    # Generic hex ID: 8+ hex chars (but not at start to avoid short strings)
+    (re.compile(r"/[0-9a-fA-F]{8,}(?=/|$)"), "/{id}"),
+    # Numeric ID: pure digits (e.g., /users/12345)
+    (re.compile(r"/\d+(?=/|$)"), "/{id}"),
+]
+
+
+def normalize_path(path: str) -> str:
+    """
+    Normalize a URL path by replacing dynamic segments with placeholders.
+    
+    This prevents high cardinality in Prometheus metrics caused by:
+    - UUID path parameters (e.g., /sessions/123e4567-e89b-...)
+    - Numeric IDs (e.g., /users/12345)
+    - Hex IDs like MongoDB ObjectIds (e.g., /docs/507f1f77bcf86cd799439011)
+    
+    Issue 17 (Comp_Static_Analysis_Report_20251203.md):
+    - "path label in metrics can explode cardinality with dynamic segments"
+    - "Impact: Prometheus memory exhaustion"
+    
+    Reference: GUIDELINES pp. 2309-2319 - metrics should use business-relevant terms
+    
+    Args:
+        path: The URL path to normalize (e.g., "/v1/sessions/uuid-here")
+    
+    Returns:
+        Normalized path with dynamic segments replaced (e.g., "/v1/sessions/{id}")
+    
+    Examples:
+        >>> normalize_path("/health")
+        '/health'
+        >>> normalize_path("/v1/sessions/123e4567-e89b-12d3-a456-426614174000")
+        '/v1/sessions/{id}'
+        >>> normalize_path("/v1/users/12345")
+        '/v1/users/{id}'
+    """
+    if path == "/":
+        return path
+    
+    normalized = path
+    for pattern, replacement in _PATH_PATTERNS:
+        normalized = pattern.sub(replacement, normalized)
+    
+    return normalized
+
 
 # =============================================================================
 # WBS 2.8.2.2: Request Counter
@@ -209,10 +271,14 @@ class MetricsMiddleware:
             return
 
         method = scope.get("method", "GET")
-        path = scope.get("path", "/")
+        raw_path = scope.get("path", "/")
+        
+        # Issue 17 Fix: Normalize path to prevent high cardinality
+        # Replace UUIDs, numeric IDs, etc. with {id} placeholder
+        path = normalize_path(raw_path)
 
         # Exclude specified paths from metrics
-        if path in self.exclude_paths:
+        if raw_path in self.exclude_paths:
             await self.app(scope, receive, send)
             return
 

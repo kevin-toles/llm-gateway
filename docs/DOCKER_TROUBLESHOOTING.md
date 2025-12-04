@@ -70,8 +70,10 @@ docker-compose -f deploy/docker/docker-compose.yml ps
 # 1.2.4.4.3 - Verify health endpoint
 curl -s http://localhost:8080/health | jq .
 
-# 1.2.4.4.4 - Verify Redis connectivity from gateway
-docker exec llm-gateway redis-cli -h redis -p 6379 ping
+# 1.2.4.4.4 - Verify Redis connectivity
+# Issue 26 Fix (Comp_Static_Analysis_Report_20251203.md):
+# redis-cli is NOT installed in llm-gateway container, use redis container instead
+docker exec llm-gateway-redis redis-cli ping
 
 # Alternative: Check gateway logs for Redis connection
 docker logs llm-gateway 2>&1 | grep -i redis
