@@ -31,7 +31,6 @@ from typing import Any, Callable, Optional
 
 from prometheus_client import (
     REGISTRY,
-    CollectorRegistry,
     Counter,
     Gauge,
     Histogram,

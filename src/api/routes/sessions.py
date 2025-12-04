@@ -66,7 +66,7 @@ class SessionService:
         # WBS 2.3: Replace with Redis session storage
         self._sessions: dict[str, dict[str, Any]] = {}
 
-    async def create_session(
+    async def create_session(  # NOSONAR - async for Redis compatibility (WBS 2.3)
         self,
         ttl_seconds: Optional[int] = None,
         context: Optional[dict[str, Any]] = None,
@@ -100,7 +100,7 @@ class SessionService:
 
         return session_data
 
-    async def get_session(self, session_id: str) -> dict[str, Any]:
+    async def get_session(self, session_id: str) -> dict[str, Any]:  # NOSONAR - async for Redis
         """
         Retrieve a session by ID.
 
@@ -124,7 +124,7 @@ class SessionService:
 
         return self._sessions[session_id]
 
-    async def delete_session(self, session_id: str) -> None:
+    async def delete_session(self, session_id: str) -> None:  # NOSONAR - async for Redis
         """
         Delete a session by ID.
 

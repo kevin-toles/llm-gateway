@@ -113,7 +113,7 @@ def get_chat_service():
     Returns:
         ChatService: Chat service instance
     """
-    from src.api.routes.chat import ChatService, get_chat_service as _get_chat_service
+    from src.api.routes.chat import get_chat_service as _get_chat_service
 
     return _get_chat_service()
 
@@ -135,7 +135,7 @@ def get_session_manager():
     Returns:
         SessionService: Session service instance
     """
-    from src.api.routes.sessions import SessionService, get_session_service
+    from src.api.routes.sessions import get_session_service
 
     return get_session_service()
 
@@ -158,7 +158,6 @@ def get_tool_executor():
         ToolExecutorService: Tool executor service instance
     """
     from src.api.routes.tools import (
-        ToolExecutorService,
         get_tool_executor as _get_tool_executor,
     )
 

@@ -18,9 +18,8 @@ Format Differences (OpenAI → Anthropic):
 """
 
 import json
-from typing import Any, Optional
+from typing import Any
 
-from src.providers.base import LLMProvider
 
 
 # =============================================================================

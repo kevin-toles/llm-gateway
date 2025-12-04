@@ -23,7 +23,7 @@ import uuid
 import logging
 from typing import Optional, AsyncGenerator, Union
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse, JSONResponse
 
 from src.core.exceptions import ProviderError
@@ -70,7 +70,7 @@ class ChatService:
         """Initialize chat service."""
         self._default_model = DEFAULT_MODEL
 
-    async def create_completion(
+    async def create_completion(  # NOSONAR - async for LLM provider compatibility
         self, request: ChatCompletionRequest
     ) -> ChatCompletionResponse:
         """
@@ -163,7 +163,7 @@ class ChatService:
     # Pattern: Observable patterns with async generators (Sinha)
     # =========================================================================
 
-    async def stream_completion(
+    async def stream_completion(  # NOSONAR - async generator for LLM streaming
         self, request: ChatCompletionRequest
     ) -> AsyncGenerator[ChatCompletionChunk, None]:
         """

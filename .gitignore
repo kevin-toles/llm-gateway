@@ -125,3 +125,4 @@ dmypy.json
 # Project specific
 *.lock
 *.code-workspace
+.scannerwork/
