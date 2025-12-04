@@ -4,6 +4,7 @@
 **Repository:** llm-gateway  
 **Analysis Tool:** CodeRabbit AI  
 **PR Reference:** #2 (Full Codebase Review)  
+**Status:** ✅ **CLOSED** — All issues resolved as of December 4, 2025
 
 ---
 
@@ -13,8 +14,8 @@
 |----------|-------|----------|-------------|
 | 🔴 Critical | 8 | ✅ 8/8 | Security vulnerabilities, broken configurations |
 | 🟠 Major | 20 | ✅ 20/20 | Race conditions, logic bugs, architectural issues |
-| 🟡 Minor | 13 | ⏳ 0/13 | Code quality, documentation, best practices |
-| **Total** | **41** | **28** | Across **31 files** |
+| 🟡 Minor | 13 | ✅ 13/13 | Code quality, documentation, best practices |
+| **Total** | **41** | ✅ **41/41** | Across **31 files** |
 
 ---
 
@@ -444,9 +445,10 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 
 ---
 
-## Batch 4: Minor Issues (Priority 29-41)
+## Batch 4: Minor Issues (Priority 29-41) — ✅ ALL RESOLVED
 
 ### 29. `sonar-project.properties` — Python Version Constraint Missing
+**Status:** ✅ RESOLVED
 **Severity:** 🟡 Minor  
 **Lines:** 17  
 **Issue:** No `pyproject.toml` with `requires-python = ">=3.11"`.
@@ -458,6 +460,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 ---
 
 ### 30. `deploy/docker/docker-compose.yml` — .env Setup Unclear
+**Status:** ✅ RESOLVED  
 **Severity:** 🟡 Minor  
 **Lines:** 65-66  
 **Issue:** Path from `.env.example` to `.env` unclear in documentation.
@@ -469,6 +472,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 ---
 
 ### 31. `deploy/helm/llm-gateway/templates/hpa.yaml` — Empty Metrics Array Possible
+**Status:** ✅ RESOLVED  
 **Severity:** 🟡 Minor  
 **Lines:** 27-46  
 **Issue:** No validation guard if all metrics disabled.
@@ -480,6 +484,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 ---
 
 ### 32. `deploy/helm/llm-gateway/Chart.yaml` — Placeholder Email
+**Status:** ✅ RESOLVED  
 **Severity:** 🟡 Minor  
 **Lines:** 83-90  
 **Issue:** Maintainer uses `example.com` domain.
@@ -491,6 +496,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 ---
 
 ### 33. `deploy/helm/llm-gateway/values-staging.yaml` — Domain Placeholder
+**Status:** ✅ RESOLVED  
 **Severity:** 🟡 Minor  
 **Lines:** 93-100  
 **Issue:** Uses `llm-gateway.staging.example.com`.
@@ -502,6 +508,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 ---
 
 ### 34. `deploy/docker/Dockerfile` — ENV Vars Overridden by CMD
+**Status:** ✅ RESOLVED  
 **Severity:** 🟡 Minor  
 **Lines:** 56-59  
 **Issue:** `LLM_GATEWAY_PORT` env var set but CMD hardcodes `--port 8080`.
@@ -513,6 +520,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 ---
 
 ### 35. `src/main.py` — CORS Origins Empty for Production
+**Status:** ✅ RESOLVED  
 **Severity:** 🟡 Minor  
 **Lines:** 102-108  
 **Issue:** Staging/production sets `allow_origins=[]` blocking all CORS.
@@ -524,6 +532,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 ---
 
 ### 36. `.github/workflows/ci.yml` — --ignore-missing-imports Flag
+**Status:** ✅ RESOLVED  
 **Severity:** 🟡 Minor  
 **Lines:** 56-57  
 **Issue:** All dependencies have type stubs, flag unnecessary.
@@ -535,6 +544,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 ---
 
 ### 37. `docs/INTEGRATION_MAP.md` — Malformed Table Header
+**Status:** ✅ RESOLVED  
 **Severity:** 🟡 Minor  
 **Lines:** 138-142  
 **Issue:** Header row contains separator segment inline.
@@ -546,6 +556,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 ---
 
 ### 38. `src/api/routes/sessions.py` — Session Expiration Not Enforced
+**Status:** ✅ RESOLVED  
 **Severity:** 🟡 Minor  
 **Lines:** 69-101  
 **Issue:** `expires_at` stored but `get_session` doesn't check it.
@@ -557,6 +568,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 ---
 
 ### 39. `src/api/routes/tools.py` — Division by Zero Returns inf
+**Status:** ✅ RESOLVED  
 **Severity:** 🟡 Minor  
 **Lines:** 68-79  
 **Issue:** Calculator returns `float("inf")` instead of raising `ValueError` as documented.
@@ -568,6 +580,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 ---
 
 ### 40. `src/services/cost_tracker.py` — Inconsistent Cost Storage Format
+**Status:** ✅ RESOLVED (verified already consistent)  
 **Severity:** 🟡 Minor  
 **Lines:** 279-289  
 **Issue:** Daily usage stores cost as `str()`, model usage stores as `float`.
@@ -579,6 +592,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 ---
 
 ### 41. `src/services/cost_tracker.py` — Prefix Matching Order Dependent
+**Status:** ✅ RESOLVED  
 **Severity:** 🟡 Minor  
 **Lines:** 176-196  
 **Issue:** `gpt-4-turbo` could match `gpt-4` depending on dict iteration order.
@@ -605,12 +619,24 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 
 ---
 
-## Next Steps
+## Completion Summary
 
-1. **Batch 1 (Critical):** Fix immediately—security and deployment-breaking issues
-2. **Batch 2-3 (Major):** Address in next sprint—race conditions and architectural issues
-3. **Batch 4 (Minor):** Backlog—code quality improvements
+✅ **All 41 issues resolved** — December 4, 2025
+
+| Batch | Issues | Commits | Key Fixes |
+|-------|--------|---------|----------|
+| Batch 1 (Critical) | 1-8 | Multiple | Security, probe paths, dependencies |
+| Batch 2 (Major) | 9-18 | Multiple | Race conditions, connection pooling |
+| Batch 3 (Major) | 19-28 | Multiple | Secrets, dependency pinning |
+| Batch 4 (Minor) | 29-41 | `2bfe580` | pyproject.toml, TDD tests, docs |
+
+**Test Coverage Added:**
+- 4 Helm tests (HPA metrics validation)
+- 3 CORS configuration tests
+- 8 path normalization tests
+- 5 TDD tests (session expiration, division by zero, prefix matching)
 
 ---
 
-*Report generated from CodeRabbit AI analysis of PR #2*
+*Report generated from CodeRabbit AI analysis of PR #2*  
+*Closed: December 4, 2025*
