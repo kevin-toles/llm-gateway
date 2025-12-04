@@ -25,7 +25,7 @@ import logging
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Generator, Optional, TextIO
+from typing import Generator, Optional, TextIO
 
 import structlog
 from structlog.types import EventDict, Processor

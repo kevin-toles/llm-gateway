@@ -16,7 +16,6 @@ Pattern: Circuit Breaker
 Anti-Pattern §1.1 Avoided: Uses Optional[T] with explicit None defaults
 """
 
-import asyncio
 import time
 from enum import Enum
 from typing import Any, Awaitable, Callable, Optional, TypeVar

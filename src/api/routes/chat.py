@@ -23,7 +23,7 @@ import uuid
 import logging
 from typing import Optional, AsyncGenerator, Union
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse, JSONResponse
 
 from src.core.exceptions import ProviderError

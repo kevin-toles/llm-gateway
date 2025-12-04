@@ -27,7 +27,7 @@ import json
 import logging
 from typing import Optional
 
-from src.models.domain import Message as DomainMessage, ToolCall, ToolResult
+from src.models.domain import Message as DomainMessage, ToolCall
 from src.models.requests import ChatCompletionRequest, Message
 from src.models.responses import ChatCompletionResponse
 from src.providers.base import LLMProvider

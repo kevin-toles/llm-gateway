@@ -18,7 +18,6 @@ Design Patterns:
 """
 
 import asyncio
-import json
 from typing import Any, AsyncIterator, Optional
 
 from openai import AsyncOpenAI
