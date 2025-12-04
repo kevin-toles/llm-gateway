@@ -7,7 +7,10 @@ tool handling for transformation between OpenAI and Anthropic formats.
 Reference Documents:
 - ARCHITECTURE.md: Line 41 - anthropic.py "Anthropic Claude adapter"
 - ARCHITECTURE.md: Lines 209-213 - Tool-Use Orchestrator patterns
+- GUIDELINES pp. 215: Provider abstraction for model swapping
+- GUIDELINES pp. 793-795: Repository pattern and ABC patterns
 - GUIDELINES pp. 1510-1590: Tool patterns and agent architectures
+- GUIDELINES pp. 2229: Model API patterns
 - Anthropic API Docs: tool_use/tool_result content block format
 - ANTI_PATTERN_ANALYSIS §1.1: Optional types with explicit None
 
@@ -17,8 +20,50 @@ Format Differences (OpenAI → Anthropic):
 - Tool result: role="tool" → role="user" with type="tool_result"
 """
 
+import asyncio
 import json
-from typing import Any
+import time
+from typing import Any, AsyncIterator, Optional
+
+from anthropic import AsyncAnthropic
+
+from src.core.exceptions import (
+    AuthenticationError,
+    ProviderError,
+    RateLimitError,
+)
+from src.models.requests import ChatCompletionRequest
+from src.models.responses import (
+    ChatCompletionResponse,
+    ChatCompletionChunk,
+    Choice,
+    ChoiceMessage,
+    ChunkChoice,
+    ChunkDelta,
+    Usage,
+)
+from src.providers.base import LLMProvider
+
+
+# =============================================================================
+# WBS 2.3.2.1.7: Supported Models
+# =============================================================================
+
+
+SUPPORTED_MODELS = [
+    # Claude 3.5 variants
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+    # Claude 3 variants
+    "claude-3-opus-20240229",
+    "claude-3-sonnet-20240229",
+    "claude-3-haiku-20240307",
+    # Claude 2 variants (legacy)
+    "claude-2.1",
+    "claude-2.0",
+    # Claude Instant (legacy)
+    "claude-instant-1.2",
+]
 
 
 
@@ -293,3 +338,463 @@ class AnthropicToolHandler:
             tool_results.append(tool_result)
 
         return {"role": "user", "content": tool_results}
+
+
+# =============================================================================
+# WBS 2.3.2.1: Anthropic Provider
+# =============================================================================
+
+
+class AnthropicProvider(LLMProvider):
+    """
+    Anthropic Claude provider adapter.
+
+    WBS 2.3.2.1: Anthropic Adapter Implementation.
+
+    This class implements the LLMProvider interface for Anthropic's Claude models.
+    It handles chat completions (streaming and non-streaming) with retry
+    logic for transient errors.
+
+    Pattern: Ports and Adapters (Hexagonal Architecture)
+    Pattern: Retry with Exponential Backoff (GUIDELINES pp. 2309)
+    Reference: GUIDELINES pp. 215 - Provider abstraction for model swapping
+
+    Args:
+        api_key: Anthropic API key.
+        max_retries: Maximum retry attempts for transient errors.
+        retry_delay: Initial delay between retries (exponential backoff).
+
+    Example:
+        >>> provider = AnthropicProvider(api_key="sk-ant-...")
+        >>> response = await provider.complete(request)
+        >>> print(response.choices[0].message.content)
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+    ) -> None:
+        """
+        Initialize Anthropic provider.
+
+        WBS 2.3.2.1.3: __init__ with api_key parameter.
+
+        Args:
+            api_key: Anthropic API key.
+            max_retries: Maximum retry attempts (default: 3).
+            retry_delay: Initial retry delay in seconds (default: 1.0).
+        """
+        self._api_key = api_key
+        self._max_retries = max_retries
+        self._retry_delay = retry_delay
+        self._tool_handler = AnthropicToolHandler()
+        self._client = AsyncAnthropic(api_key=api_key)
+
+    # =========================================================================
+    # WBS 2.3.2.1.4: complete() method
+    # =========================================================================
+
+    async def complete(
+        self, request: ChatCompletionRequest
+    ) -> ChatCompletionResponse:
+        """
+        Generate a chat completion response (non-streaming).
+
+        WBS 2.3.2.1.4: Implement complete() method.
+
+        Args:
+            request: The chat completion request.
+
+        Returns:
+            ChatCompletionResponse with completion results.
+
+        Raises:
+            ProviderError: On API errors.
+            RateLimitError: On rate limit errors.
+            AuthenticationError: On auth errors.
+        """
+        # Build request kwargs
+        kwargs = self._build_request_kwargs(request)
+
+        # Execute with retry
+        response = await self._execute_with_retry(
+            self._client.messages.create,
+            **kwargs,
+        )
+
+        # Transform response to our model
+        return self._transform_response(response)
+
+    # =========================================================================
+    # WBS 2.3.2.1.5: stream() method
+    # =========================================================================
+
+    async def stream(
+        self, request: ChatCompletionRequest
+    ) -> AsyncIterator[ChatCompletionChunk]:
+        """
+        Generate a streaming chat completion response.
+
+        WBS 2.3.2.1.5: Implement stream() method.
+
+        Args:
+            request: The chat completion request.
+
+        Yields:
+            ChatCompletionChunk objects as they arrive.
+
+        Raises:
+            ProviderError: On API errors.
+            RateLimitError: On rate limit errors.
+            AuthenticationError: On auth errors.
+        """
+        # Build request kwargs
+        kwargs = self._build_request_kwargs(request)
+
+        try:
+            async with self._client.messages.stream(**kwargs) as stream:
+                message_id: Optional[str] = None
+                model: Optional[str] = None
+
+                async for event in stream:
+                    if event.type == "message_start":
+                        message_id = event.message.id
+                        model = event.message.model
+                    elif event.type == "content_block_delta":
+                        if hasattr(event.delta, "text"):
+                            yield ChatCompletionChunk(
+                                id=message_id or "unknown",
+                                model=model or request.model,
+                                choices=[
+                                    ChunkChoice(
+                                        index=0,
+                                        delta=ChunkDelta(
+                                            role="assistant",
+                                            content=event.delta.text,
+                                        ),
+                                        finish_reason=None,
+                                    )
+                                ],
+                            )
+                    elif event.type == "message_delta":
+                        # Final chunk with finish reason
+                        finish_reason = None
+                        if hasattr(event.delta, "stop_reason"):
+                            finish_reason = (
+                                "stop"
+                                if event.delta.stop_reason == "end_turn"
+                                else event.delta.stop_reason
+                            )
+                        yield ChatCompletionChunk(
+                            id=message_id or "unknown",
+                            model=model or request.model,
+                            choices=[
+                                ChunkChoice(
+                                    index=0,
+                                    delta=ChunkDelta(),
+                                    finish_reason=finish_reason,
+                                )
+                            ],
+                        )
+        except Exception as e:
+            self._handle_error(e)
+
+    # =========================================================================
+    # WBS 2.3.2.1.6: supports_model() method
+    # =========================================================================
+
+    def supports_model(self, model: str) -> bool:
+        """
+        Check if this provider supports the specified model.
+
+        WBS 2.3.2.1.6: Implement supports_model().
+
+        Args:
+            model: The model identifier.
+
+        Returns:
+            True if model is supported, False otherwise.
+        """
+        # Check exact match first
+        if model in SUPPORTED_MODELS:
+            return True
+
+        # Check prefix match for Claude models
+        return model.startswith("claude-")
+
+    # =========================================================================
+    # WBS 2.3.2.1.7: get_supported_models() method
+    # =========================================================================
+
+    def get_supported_models(self) -> list[str]:
+        """
+        Get the list of supported model identifiers.
+
+        WBS 2.3.2.1.7: Implement get_supported_models().
+
+        Returns:
+            List of supported model identifiers.
+        """
+        return SUPPORTED_MODELS.copy()
+
+    # =========================================================================
+    # WBS 2.3.2.1.8: Retry Logic with Exponential Backoff
+    # =========================================================================
+
+    async def _execute_with_retry(
+        self,
+        func,
+        **kwargs,
+    ) -> Any:
+        """
+        Execute a function with retry logic and exponential backoff.
+
+        WBS 2.3.2.1.8: Implement retry logic.
+
+        Pattern: Exponential backoff (GUIDELINES pp. 2309)
+
+        Args:
+            func: The async function to execute.
+            **kwargs: Arguments to pass to the function.
+
+        Returns:
+            The function result.
+
+        Raises:
+            RateLimitError: When retries exhausted on rate limit.
+            AuthenticationError: Immediately on auth errors (no retry).
+            ProviderError: On other errors after retry exhaustion.
+        """
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self._max_retries):
+            try:
+                return await func(**kwargs)
+            except Exception as e:
+                error_str = str(e).lower()
+
+                # Check for authentication errors (don't retry)
+                if (
+                    "authentication" in error_str
+                    or "api key" in error_str
+                    or "unauthorized" in error_str
+                    or "invalid_api_key" in error_str
+                ):
+                    raise AuthenticationError(str(e), provider="anthropic") from e
+
+                # Check for rate limit errors (retry)
+                if "rate limit" in error_str or "429" in error_str:
+                    last_error = RateLimitError(str(e))
+                else:
+                    # Other errors - wrap and retry
+                    last_error = ProviderError(str(e), provider="anthropic")
+
+                # Wait before retry (exponential backoff)
+                if attempt < self._max_retries - 1:
+                    delay = self._retry_delay * (2**attempt)
+                    await asyncio.sleep(delay)
+
+        # Exhausted retries
+        if isinstance(last_error, RateLimitError):
+            raise last_error
+        raise ProviderError(
+            f"Request failed after {self._max_retries} attempts: {last_error}",
+            provider="anthropic",
+        )
+
+    # =========================================================================
+    # WBS 2.3.2.1.9: Error Handling
+    # =========================================================================
+
+    def _handle_error(self, e: Exception) -> None:
+        """
+        Handle and re-raise errors with appropriate types.
+
+        WBS 2.3.2.1.9: Error handling.
+
+        Args:
+            e: The exception to handle.
+
+        Raises:
+            AuthenticationError: For auth errors.
+            RateLimitError: For rate limit errors.
+            ProviderError: For other errors.
+        """
+        error_str = str(e).lower()
+
+        if (
+            "authentication" in error_str
+            or "api key" in error_str
+            or "unauthorized" in error_str
+            or "invalid_api_key" in error_str
+        ):
+            raise AuthenticationError(str(e), provider="anthropic") from e
+
+        if "rate limit" in error_str or "429" in error_str:
+            raise RateLimitError(str(e)) from e
+
+        raise ProviderError(str(e), provider="anthropic") from e
+
+    # =========================================================================
+    # Helper Methods
+    # =========================================================================
+
+    def _build_request_kwargs(
+        self, request: ChatCompletionRequest
+    ) -> dict[str, Any]:
+        """
+        Build kwargs for Anthropic API call from request.
+
+        Args:
+            request: The chat completion request.
+
+        Returns:
+            Dict of kwargs for the API call.
+        """
+        # Transform messages to Anthropic format
+        messages = self._transform_messages(request.messages)
+
+        # Extract system message if present
+        system: Optional[str] = None
+        if messages and messages[0].get("role") == "system":
+            system = messages[0].get("content", "")
+            messages = messages[1:]
+
+        kwargs: dict[str, Any] = {
+            "model": request.model,
+            "messages": messages,
+            "max_tokens": request.max_tokens or 1024,
+        }
+
+        if system:
+            kwargs["system"] = system
+
+        if request.temperature is not None:
+            kwargs["temperature"] = request.temperature
+
+        if request.top_p is not None:
+            kwargs["top_p"] = request.top_p
+
+        # Transform tools if present
+        if request.tools:
+            kwargs["tools"] = self._tool_handler.transform_tools(
+                [t.model_dump() for t in request.tools]
+            )
+
+        return kwargs
+
+    def _transform_messages(
+        self, messages: list[Any]
+    ) -> list[dict[str, Any]]:
+        """
+        Transform OpenAI-format messages to Anthropic format.
+
+        Args:
+            messages: List of messages in OpenAI format.
+
+        Returns:
+            List of messages in Anthropic format.
+        """
+        result: list[dict[str, Any]] = []
+
+        for msg in messages:
+            # Handle both Pydantic models and dicts
+            if hasattr(msg, "model_dump"):
+                msg_dict = msg.model_dump()
+            else:
+                msg_dict = msg
+
+            role = msg_dict.get("role", "user")
+            content = msg_dict.get("content", "")
+
+            # Handle tool messages - transform to Anthropic format
+            if role == "tool":
+                tool_result = self._tool_handler.format_tool_result_message(msg_dict)
+                # Merge consecutive tool results if last message is also user
+                if result and result[-1].get("role") == "user":
+                    if isinstance(result[-1].get("content"), list):
+                        result[-1]["content"].extend(tool_result["content"])
+                    else:
+                        result[-1] = tool_result
+                else:
+                    result.append(tool_result)
+            elif role == "assistant" and msg_dict.get("tool_calls"):
+                # Handle assistant message with tool calls
+                content_blocks: list[dict[str, Any]] = []
+                if content:
+                    content_blocks.append({"type": "text", "text": content})
+                # Add tool use blocks
+                for tc in msg_dict["tool_calls"]:
+                    content_blocks.append({
+                        "type": "tool_use",
+                        "id": tc.get("id", ""),
+                        "name": tc.get("function", {}).get("name", ""),
+                        "input": json.loads(
+                            tc.get("function", {}).get("arguments", "{}")
+                        ),
+                    })
+                result.append({"role": "assistant", "content": content_blocks})
+            else:
+                result.append({"role": role, "content": content})
+
+        return result
+
+    def _transform_response(self, response: Any) -> ChatCompletionResponse:
+        """
+        Transform Anthropic response to our model.
+
+        Args:
+            response: Anthropic API response.
+
+        Returns:
+            ChatCompletionResponse model.
+        """
+        # Extract text content
+        content = ""
+        tool_calls = None
+
+        for block in response.content:
+            if block.type == "text":
+                content = block.text
+            elif block.type == "tool_use":
+                if tool_calls is None:
+                    tool_calls = []
+                tool_calls.append({
+                    "id": block.id,
+                    "type": "function",
+                    "function": {
+                        "name": block.name,
+                        "arguments": json.dumps(block.input),
+                    },
+                })
+
+        # Determine finish reason
+        finish_reason = "stop"
+        if response.stop_reason == "tool_use":
+            finish_reason = "tool_calls"
+        elif response.stop_reason == "max_tokens":
+            finish_reason = "length"
+
+        return ChatCompletionResponse(
+            id=response.id,
+            model=response.model,
+            created=int(time.time()),
+            choices=[
+                Choice(
+                    index=0,
+                    message=ChoiceMessage(
+                        role="assistant",
+                        content=content if content else None,
+                        tool_calls=tool_calls,
+                    ),
+                    finish_reason=finish_reason,
+                )
+            ],
+            usage=Usage(
+                prompt_tokens=response.usage.input_tokens,
+                completion_tokens=response.usage.output_tokens,
+                total_tokens=response.usage.input_tokens + response.usage.output_tokens,
+            ),
+        )
