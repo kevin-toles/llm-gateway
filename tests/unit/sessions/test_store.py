@@ -276,6 +276,39 @@ class TestSessionStoreGet:
 
         assert result is None
 
+    @pytest.mark.asyncio
+    async def test_get_expired_session_returns_none(self, session_store, fake_redis) -> None:
+        """
+        Issue 38: get() returns None for logically expired sessions.
+        
+        Even if Redis TTL hasn't evicted the key yet, sessions with
+        expires_at in the past should return None for defensive coding.
+        
+        This tests the application-level expiration check that supplements
+        Redis TTL behavior.
+        """
+        from src.models.domain import Session
+
+        now = datetime.now(timezone.utc)
+        
+        # Create session that will expire immediately
+        expired_session = Session(
+            id="sess_expired_check",
+            messages=[],
+            context={},
+            created_at=now - timedelta(hours=2),
+            expires_at=now - timedelta(seconds=1),  # Already expired
+        )
+        
+        # Directly save to Redis bypassing TTL calculation (simulates race condition)
+        key = f"sessions:{expired_session.id}"
+        await fake_redis.set(key, expired_session.model_dump_json())
+        
+        # Even though key exists in Redis, get() should check expires_at
+        result = await session_store.get(expired_session.id)
+        
+        assert result is None
+
 
 # =============================================================================
 # WBS 2.5.1.1.9: Delete Session Tests

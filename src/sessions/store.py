@@ -179,12 +179,18 @@ class SessionStore:
         Retrieve a session from Redis.
 
         WBS 2.5.1.1.8: Implement async get(session_id: str) -> Session | None.
+        Issue 38: Added application-level expiration check.
+
+        This method includes two layers of expiration handling:
+        1. Redis TTL: Keys auto-expire based on session.expires_at
+        2. Application check: Defensive check for sessions where expires_at
+           has passed but Redis TTL hasn't evicted the key yet (race condition)
 
         Args:
             session_id: The session's unique identifier.
 
         Returns:
-            The Session if found, None otherwise.
+            The Session if found and not expired, None otherwise.
 
         Raises:
             SessionStoreError: If the get operation fails.
@@ -197,7 +203,17 @@ class SessionStore:
                 return None
 
             # Deserialize from JSON
-            return Session.model_validate_json(json_data)
+            session = Session.model_validate_json(json_data)
+
+            # Issue 38: Application-level expiration check
+            # Defensive check in case Redis TTL hasn't evicted the key yet
+            now = datetime.now(timezone.utc)
+            if session.expires_at < now:
+                # Session has logically expired, clean up and return None
+                await self._redis.delete(key)
+                return None
+
+            return session
 
         except SessionStoreError:
             raise

@@ -8,8 +8,16 @@ Supports:
 - Memory utilization targeting
 - Custom metrics (when configured)
 - Scale behavior configuration
+
+Issue 31 Fix (Comp_Static_Analysis_Report_20251203.md):
+Guard against creating HPA with empty metrics array.
+At least one metric (CPU, Memory, or custom) must be configured.
 ========================================================================== */}}
 {{- if .Values.autoscaling.enabled }}
+{{- $hasCPU := .Values.autoscaling.targetCPUUtilizationPercentage }}
+{{- $hasMem := .Values.autoscaling.targetMemoryUtilizationPercentage }}
+{{- $hasCustom := .Values.autoscaling.customMetrics }}
+{{- if or $hasCPU $hasMem $hasCustom }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -73,4 +81,5 @@ spec:
       {{- end }}
     {{- end }}
   {{- end }}
+{{- end }}
 {{- end }}

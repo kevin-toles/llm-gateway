@@ -135,7 +135,8 @@ This document maps the integration points between all four repositories in the L
 
 ## Repository Summary
 
-| Repository | Type | Port | Purpose | Talks to LLMs? |----------------|
+| Repository | Type | Port | Purpose | Talks to LLMs? |
+|------------|------|------|---------|----------------|
 | `llm-gateway` | Microservice | 8080 | LLM provider abstraction, tool-use, sessions | ✅ **YES** (only one) |
 | `semantic-search-service` | Microservice | 8081 | Embeddings, vector search, topic modeling | ❌ No (SBERT is local) |
 | `ai-agents` | Microservice | 8082 | Specialized AI agents (code review, architecture) | ❌ No (calls gateway) |

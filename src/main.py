@@ -30,6 +30,34 @@ APP_DESCRIPTION = "Unified gateway for LLM provider access"
 # Environment configuration
 ENV = os.getenv("LLM_GATEWAY_ENV", "development")
 LOG_LEVEL = os.getenv("LLM_GATEWAY_LOG_LEVEL", "INFO")
+CORS_ORIGINS = os.getenv("LLM_GATEWAY_CORS_ORIGINS", "")
+
+
+def get_cors_origins() -> list[str]:
+    """
+    Get CORS allowed origins based on environment.
+    
+    Issue 35 Fix (Comp_Static_Analysis_Report_20251203.md):
+    Configure allowed origins via environment variable instead of hardcoding empty list.
+    
+    - Development: Allow all origins (["*"])
+    - Staging/Production: Use LLM_GATEWAY_CORS_ORIGINS env var (comma-separated)
+    - If not configured in production: Empty list (blocks all cross-origin requests)
+    
+    Example:
+        export LLM_GATEWAY_CORS_ORIGINS="https://app.example.com,https://admin.example.com"
+    
+    Returns:
+        List of allowed origin strings.
+    """
+    if ENV == "development":
+        return ["*"]
+    
+    if CORS_ORIGINS:
+        # Parse comma-separated origins and strip whitespace
+        return [origin.strip() for origin in CORS_ORIGINS.split(",") if origin.strip()]
+    
+    return []
 
 
 # =============================================================================
@@ -99,9 +127,10 @@ app = FastAPI(
 )
 
 # Configure CORS - WBS 2.1.1.1.5
+# Issue 35 Fix: Use get_cors_origins() for configurable allowed origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if ENV == "development" else [],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

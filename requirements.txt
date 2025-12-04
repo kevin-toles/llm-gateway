@@ -34,3 +34,4 @@ prometheus-client~=0.21.0
 opentelemetry-api~=1.28.0
 opentelemetry-sdk~=1.28.0
 opentelemetry-instrumentation-fastapi~=0.49b0
+opentelemetry-exporter-otlp-proto-grpc~=1.28.0  # Issue 36: OTLP GRPC exporter for distributed tracing

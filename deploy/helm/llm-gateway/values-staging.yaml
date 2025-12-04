@@ -3,6 +3,17 @@
 # =============================================================================
 # Usage:
 #   helm install llm-gateway ./deploy/helm/llm-gateway -f values-staging.yaml
+#
+# Issue 33 Fix (Comp_Static_Analysis_Report_20251203.md):
+# Before deploying to staging, update the following placeholders:
+#   1. ingress.hosts[0].host - Replace llm-gateway.staging.example.com with actual domain
+#   2. ingress.tls[0].hosts[0] - Replace with actual staging domain
+#   3. secrets.externalSecrets.remoteRefs - Update AWS Secrets Manager paths
+#
+# Example for custom domain:
+#   helm install llm-gateway ./deploy/helm/llm-gateway -f values-staging.yaml \
+#     --set ingress.hosts[0].host=llm-gateway.staging.mycompany.com \
+#     --set ingress.tls[0].hosts[0]=llm-gateway.staging.mycompany.com
 # =============================================================================
 
 # Production-like replicas for staging

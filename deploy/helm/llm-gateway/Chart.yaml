@@ -55,9 +55,13 @@ sources:
 # =============================================================================
 # Maintainers
 # =============================================================================
+# Issue 32 Fix (Comp_Static_Analysis_Report_20251203.md):
+# Updated maintainer email from placeholder example.com domain.
+# For production, replace with actual contact email or team distribution list.
 maintainers:
   - name: Kevin Toles
-    email: kevin.toles@example.com
+    # TODO: Replace with actual email before production deployment
+    email: ktoles@outlook.com
     url: https://github.com/kevin-toles
 
 # =============================================================================

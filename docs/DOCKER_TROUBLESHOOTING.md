@@ -87,6 +87,53 @@ docker ps -a | grep llm-gateway
 
 ---
 
+## Environment Setup (Required Before First Run)
+
+The docker-compose.yml references a `.env` file for API keys. Follow these steps:
+
+### Step 1: Create .env File
+
+```bash
+# Navigate to the docker compose directory
+cd /Users/kevintoles/POC/llm-gateway/deploy/docker
+
+# Copy the example file to create your .env
+cp ../../.env.example .env
+```
+
+### Step 2: Configure API Keys
+
+Edit the `.env` file with your actual API keys:
+
+```bash
+# Open in your editor
+nano .env
+# Or
+code .env
+```
+
+Required variables:
+```env
+# Provider API Keys (at least one required)
+LLM_GATEWAY_ANTHROPIC_API_KEY=sk-ant-your-key-here
+LLM_GATEWAY_OPENAI_API_KEY=sk-your-key-here
+
+# Optional: Override default provider
+LLM_GATEWAY_DEFAULT_PROVIDER=anthropic
+LLM_GATEWAY_DEFAULT_MODEL=claude-3-sonnet-20240229
+```
+
+### Step 3: Verify Setup
+
+```bash
+# Ensure .env exists and has content
+cat .env | grep -v "^#" | grep -v "^$"
+```
+
+> ⚠️ **Security Note:** Never commit `.env` files to git. The `.gitignore` already excludes them.
+
+---
+
 ## Development Environment Startup
 
 ```bash

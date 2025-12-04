@@ -124,6 +124,34 @@ class TestCostTrackerPricing:
         )
         assert cost > 0
 
+    def test_prefix_match_prefers_longest_prefix(self, cost_tracker) -> None:
+        """
+        Issue 41: Prefix matching should prefer longer prefixes.
+        
+        Given prefixes 'gpt-4' and 'gpt-4-turbo', the model 'gpt-4-turbo-preview'
+        should match 'gpt-4-turbo' (longer prefix), not 'gpt-4'.
+        
+        gpt-4: $30/M input, $60/M output
+        gpt-4-turbo: $10/M input, $30/M output
+        
+        For 1M input tokens: gpt-4=$30, gpt-4-turbo=$10
+        This test verifies the cheaper (correct) pricing is used.
+        """
+        # gpt-4-turbo pricing: $10/M input, $30/M output
+        # gpt-4 pricing: $30/M input, $60/M output
+        # If longest prefix matches, cost for 1M input = $10
+        # If shortest prefix matches, cost for 1M input = $30
+        cost = cost_tracker.calculate_cost(
+            "gpt-4-turbo-preview",  # Should match 'gpt-4-turbo', not 'gpt-4'
+            prompt_tokens=1_000_000,
+            completion_tokens=0,
+        )
+        # gpt-4-turbo input cost: $10.00 per 1M tokens
+        assert cost == pytest.approx(10.0, rel=1e-2), (
+            f"Expected ~$10 (gpt-4-turbo pricing), got ${cost}. "
+            "Prefix matching may have incorrectly matched 'gpt-4' instead of 'gpt-4-turbo'."
+        )
+
 
 # =============================================================================
 # WBS 2.6.2.1.4-5: Record Usage and Cost Calculation Tests

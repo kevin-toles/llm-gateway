@@ -187,8 +187,15 @@ class CostTracker:
             return self._pricing[model]
 
         # Try prefix match (e.g., "gpt-4-0613" matches "gpt-4")
-        for model_prefix in self._pricing:
-            if model_prefix != "_default" and model.startswith(model_prefix):
+        # Sort by length descending to prefer longer/more specific prefixes
+        # e.g., "gpt-4-turbo-preview" should match "gpt-4-turbo", not "gpt-4"
+        sorted_prefixes = sorted(
+            (k for k in self._pricing if k != "_default"),
+            key=len,
+            reverse=True,
+        )
+        for model_prefix in sorted_prefixes:
+            if model.startswith(model_prefix):
                 return self._pricing[model_prefix]
 
         # Fallback to default

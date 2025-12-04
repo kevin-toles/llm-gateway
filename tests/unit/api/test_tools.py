@@ -255,6 +255,49 @@ class TestToolExecuteEndpoint:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
+class TestCalculatorTool:
+    """Test suite for calculator tool - Issue 39"""
+
+    @pytest.mark.asyncio
+    async def test_calculator_division_by_zero_raises_value_error(self):
+        """
+        Issue 39: Calculator tool should raise ValueError for division by zero.
+        
+        Division by zero is an error condition, not a valid result.
+        Returning float("inf") hides the error and can cause downstream issues.
+        """
+        from src.api.routes.tools import calculator_tool
+        
+        with pytest.raises(ValueError) as exc_info:
+            await calculator_tool(a=10.0, b=0.0, operation="divide")
+        
+        assert "division by zero" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_calculator_normal_division_works(self):
+        """
+        Calculator tool should perform normal division correctly.
+        """
+        from src.api.routes.tools import calculator_tool
+        
+        result = await calculator_tool(a=10.0, b=2.0, operation="divide")
+        
+        assert result["result"] == 5.0
+        assert result["operation"] == "divide"
+
+    @pytest.mark.asyncio
+    async def test_calculator_addition_works(self):
+        """
+        Calculator tool should perform addition correctly.
+        """
+        from src.api.routes.tools import calculator_tool
+        
+        result = await calculator_tool(a=3.0, b=4.0, operation="add")
+        
+        assert result["result"] == 7.0
+        assert result["operation"] == "add"
+
+
 class TestToolExecutorService:
     """
     Test suite for ToolExecutorService - WBS 2.2.4.3

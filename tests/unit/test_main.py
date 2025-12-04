@@ -277,6 +277,67 @@ class TestMiddlewareRegistration:
         assert response.status_code in [200, 204, 405]
 
 
+class TestCORSOrigins:
+    """
+    Issue 35 Fix (Comp_Static_Analysis_Report_20251203.md):
+    Tests for CORS origins via environment variable.
+    """
+
+    def test_cors_origins_from_env_variable(self, monkeypatch):
+        """
+        Issue 35: CORS origins should be configurable via environment variable.
+        
+        When LLM_GATEWAY_CORS_ORIGINS is set, those origins should be used
+        instead of empty list for production.
+        """
+        # Set environment variables before importing
+        monkeypatch.setenv("LLM_GATEWAY_ENV", "production")
+        monkeypatch.setenv("LLM_GATEWAY_CORS_ORIGINS", "https://app.example.com,https://admin.example.com")
+        
+        # Force reimport to pick up new env vars
+        import importlib
+        import src.main
+        importlib.reload(src.main)
+        
+        from src.main import get_cors_origins
+        
+        origins = get_cors_origins()
+        assert "https://app.example.com" in origins
+        assert "https://admin.example.com" in origins
+
+    def test_cors_origins_empty_for_production_without_env(self, monkeypatch):
+        """
+        Issue 35: Production should have empty origins if not configured.
+        """
+        monkeypatch.setenv("LLM_GATEWAY_ENV", "production")
+        monkeypatch.delenv("LLM_GATEWAY_CORS_ORIGINS", raising=False)
+        
+        import importlib
+        import src.main
+        importlib.reload(src.main)
+        
+        from src.main import get_cors_origins
+        
+        origins = get_cors_origins()
+        assert origins == []
+
+    def test_cors_allows_all_in_development(self, monkeypatch):
+        """
+        Issue 35: Development should allow all origins.
+        """
+        monkeypatch.setenv("LLM_GATEWAY_ENV", "development")
+        monkeypatch.delenv("LLM_GATEWAY_CORS_ORIGINS", raising=False)
+        
+        import importlib
+        import src.main
+        importlib.reload(src.main)
+        
+        from src.main import get_cors_origins
+        
+        origins = get_cors_origins()
+        assert origins == ["*"]
+
+
 # =============================================================================
 # Integration: Root Endpoint Test
 # =============================================================================

@@ -100,5 +100,7 @@ EXPOSE 8080
 # Entrypoint
 ENTRYPOINT ["scripts/entrypoint.sh"]
 
-# Default command
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "4"]
+# Issue 34 Fix (Comp_Static_Analysis_Report_20251203.md):
+# Use shell form CMD to allow environment variable expansion.
+# Previous exec form ["uvicorn", ..., "--port", "8080"] ignored LLM_GATEWAY_PORT env var.
+CMD uvicorn src.main:app --host 0.0.0.0 --port ${LLM_GATEWAY_PORT:-8080} --workers ${LLM_GATEWAY_WORKERS:-4}

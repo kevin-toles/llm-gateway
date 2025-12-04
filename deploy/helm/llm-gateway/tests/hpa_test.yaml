@@ -122,6 +122,61 @@ tests:
                 averageUtilization: 80
 
   # =========================================================================
+  # Empty Metrics Guard Tests (Issue 31)
+  # =========================================================================
+  - it: should NOT create HPA when all metrics are disabled
+    set:
+      autoscaling:
+        enabled: true
+        minReplicas: 2
+        maxReplicas: 10
+        # No CPU or Memory metrics configured
+        targetCPUUtilizationPercentage: null
+        targetMemoryUtilizationPercentage: null
+        customMetrics: []
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create HPA when at least CPU metric is configured
+    set:
+      autoscaling:
+        enabled: true
+        targetCPUUtilizationPercentage: 70
+        targetMemoryUtilizationPercentage: null
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should create HPA when at least memory metric is configured
+    set:
+      autoscaling:
+        enabled: true
+        targetCPUUtilizationPercentage: null
+        targetMemoryUtilizationPercentage: 80
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should create HPA when custom metrics are configured
+    set:
+      autoscaling:
+        enabled: true
+        targetCPUUtilizationPercentage: null
+        targetMemoryUtilizationPercentage: null
+        customMetrics:
+          - type: Pods
+            pods:
+              metric:
+                name: requests_per_second
+              target:
+                type: AverageValue
+                averageValue: 1000m
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  # =========================================================================
   # Behavior Tests
   # =========================================================================
   - it: should have scaleDown behavior when configured

@@ -54,7 +54,7 @@ jobs:
         run: ruff format --check src/
 
       - name: Run MyPy (type checking)
-        run: mypy src/ --ignore-missing-imports
+        run: mypy src/
 
   # ===========================================================================
   # Test Job - Unit & Integration Tests

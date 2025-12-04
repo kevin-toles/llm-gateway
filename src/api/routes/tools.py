@@ -69,11 +69,15 @@ async def calculator_tool(a: float, b: float, operation: str = "add") -> dict[st
         "add": lambda x, y: x + y,
         "subtract": lambda x, y: x - y,
         "multiply": lambda x, y: x * y,
-        "divide": lambda x, y: x / y if y != 0 else float("inf"),
+        "divide": lambda x, y: x / y,  # Issue 39: Let Python raise ZeroDivisionError
     }
 
     if operation not in operations:
         raise ValueError(f"Unknown operation: {operation}")
+
+    # Issue 39: Explicit check for division by zero with clear error message
+    if operation == "divide" and b == 0:
+        raise ValueError("Division by zero")
 
     result = operations[operation](a, b)
     return {"result": result, "operation": operation, "a": a, "b": b}
