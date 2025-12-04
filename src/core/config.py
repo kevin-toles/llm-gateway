@@ -17,7 +17,7 @@ from enum import Enum
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -91,13 +91,15 @@ class Settings(BaseSettings):
 
     # =========================================================================
     # WBS 2.1.2.1.7: Provider API Keys
+    # Pattern: SecretStr for sensitive values (GUIDELINES: security validation)
+    # SecretStr masks values in logs/repr, use .get_secret_value() to access
     # =========================================================================
-    anthropic_api_key: str = Field(
-        default="",
+    anthropic_api_key: SecretStr = Field(
+        default=SecretStr(""),
         description="Anthropic API key for Claude models",
     )
-    openai_api_key: str = Field(
-        default="",
+    openai_api_key: SecretStr = Field(
+        default=SecretStr(""),
         description="OpenAI API key for GPT models",
     )
 

@@ -105,12 +105,20 @@ networkPolicy:
     allowRedis: true
 
 # Production Redis with replication for HA
+# SECURITY: Redis authentication is required in production.
+# The password MUST be set via one of these methods (never commit passwords):
+#   1. External Secrets (recommended): Set externalSecrets.enabled=true below
+#   2. Command line: --set redis.auth.password="<strong-password>"
+#   3. Secrets file: --values /path/to/secrets.yaml (gitignored)
+# Failure to set a password will cause Redis connection failures.
 redis:
   enabled: true
   architecture: replication
   auth:
     enabled: true
-    password: ""  # Set via external secret or --set
+    # REQUIRED: Set via --set redis.auth.password or external secrets
+    # DO NOT hardcode passwords here
+    password: ""
   master:
     persistence:
       enabled: true

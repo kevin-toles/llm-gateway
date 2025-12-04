@@ -8,6 +8,7 @@
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.5.0
+pydantic-settings>=2.0.0  # Required for BaseSettings (moved from pydantic core in v2)
 
 # HTTP Client
 httpx>=0.25.0

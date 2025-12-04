@@ -9,6 +9,7 @@ Reference Documents:
 - GUIDELINES pp. 2309: Timeout configuration and connection pooling
 - GUIDELINES pp. 1004: Self-hosted model patterns
 - ANTI_PATTERN_ANALYSIS §1.1: Optional types with explicit None
+- ANTI_PATTERN_ANALYSIS: Exception names must not shadow builtins
 
 Design Patterns:
 - Ports and Adapters: OllamaProvider implements LLMProvider interface
@@ -43,33 +44,41 @@ from src.providers.base import LLMProvider
 
 # =============================================================================
 # WBS 2.3.4.1.12: Custom Exception Classes
+# NOTE: Named with Ollama prefix to avoid shadowing Python builtins
+# See CODING_PATTERNS_ANALYSIS.md §7.1: Exception Shadowing Anti-Pattern
 # =============================================================================
 
 
-class ProviderError(Exception):
+class OllamaProviderError(Exception):
     """
-    Base exception for provider errors.
+    Base exception for Ollama provider errors.
     
     WBS 2.3.4.1.12: Custom exception for provider-specific errors.
     """
     pass
 
 
-class ConnectionError(ProviderError):
+class OllamaConnectionError(OllamaProviderError):
     """
     Exception raised when connection to Ollama fails.
     
     WBS 2.3.4.1.12: Connection error for local service unavailability.
+    
+    NOTE: Named OllamaConnectionError to avoid shadowing Python's
+    builtin ConnectionError exception.
     """
     pass
 
 
-class TimeoutError(ProviderError):
+class OllamaTimeoutError(OllamaProviderError):
     """
     Exception raised when request times out.
     
     WBS 2.3.4.1.12: Timeout error for slow responses.
     Pattern: Timeout configuration (GUIDELINES pp. 2309)
+    
+    NOTE: Named OllamaTimeoutError to avoid shadowing Python's
+    builtin TimeoutError exception.
     """
     pass
 
@@ -145,9 +154,9 @@ class OllamaProvider(LLMProvider):
             ChatCompletionResponse with completion results.
             
         Raises:
-            ConnectionError: When Ollama is not reachable.
-            TimeoutError: When request times out.
-            ProviderError: On other API errors.
+            OllamaConnectionError: When Ollama is not reachable.
+            OllamaTimeoutError: When request times out.
+            OllamaProviderError: On other API errors.
         """
         # Build Ollama request format
         ollama_request = self._build_ollama_request(request)
@@ -163,11 +172,11 @@ class OllamaProvider(LLMProvider):
                 data = response.json()
                 
         except httpx.ConnectError as e:
-            raise ConnectionError(f"Failed to connect to Ollama: {e}") from e
+            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
         except httpx.TimeoutException as e:
-            raise TimeoutError(f"Request to Ollama timed out: {e}") from e
+            raise OllamaTimeoutError(f"Request to Ollama timed out: {e}") from e
         except httpx.HTTPStatusError as e:
-            raise ProviderError(f"Ollama API error: {e}") from e
+            raise OllamaProviderError(f"Ollama API error: {e}") from e
         
         # Transform response
         return self._transform_response(data, request.model)
@@ -191,9 +200,9 @@ class OllamaProvider(LLMProvider):
             ChatCompletionChunk objects as they arrive.
             
         Raises:
-            ConnectionError: When Ollama is not reachable.
-            TimeoutError: When request times out.
-            ProviderError: On other API errors.
+            OllamaConnectionError: When Ollama is not reachable.
+            OllamaTimeoutError: When request times out.
+            OllamaProviderError: On other API errors.
         """
         # Build Ollama request format
         ollama_request = self._build_ollama_request(request)
@@ -226,11 +235,11 @@ class OllamaProvider(LLMProvider):
                         yield chunk
                         
         except httpx.ConnectError as e:
-            raise ConnectionError(f"Failed to connect to Ollama: {e}") from e
+            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
         except httpx.TimeoutException as e:
-            raise TimeoutError(f"Request to Ollama timed out: {e}") from e
+            raise OllamaTimeoutError(f"Request to Ollama timed out: {e}") from e
         except httpx.HTTPStatusError as e:
-            raise ProviderError(f"Ollama API error: {e}") from e
+            raise OllamaProviderError(f"Ollama API error: {e}") from e
 
     # =========================================================================
     # WBS 2.3.4.1.9: supports_model() method
@@ -287,7 +296,7 @@ class OllamaProvider(LLMProvider):
             List of model names available in the local Ollama instance.
             
         Raises:
-            ConnectionError: When Ollama is not reachable.
+            OllamaConnectionError: When Ollama is not reachable.
             ProviderError: On other API errors.
         """
         try:
@@ -297,7 +306,7 @@ class OllamaProvider(LLMProvider):
                 data = response.json()
                 
         except httpx.ConnectError as e:
-            raise ConnectionError(f"Failed to connect to Ollama: {e}") from e
+            raise OllamaConnectionError(f"Failed to connect to Ollama: {e}") from e
         except httpx.HTTPStatusError as e:
             raise ProviderError(f"Ollama API error: {e}") from e
         
@@ -311,7 +320,7 @@ class OllamaProvider(LLMProvider):
         WBS 2.3.4.1.10: Model discovery from Ollama.
         
         Raises:
-            ConnectionError: When Ollama is not reachable.
+            OllamaConnectionError: When Ollama is not reachable.
             ProviderError: On other API errors.
         """
         self._available_models = await self.list_available_models()
@@ -368,7 +377,10 @@ class OllamaProvider(LLMProvider):
         if request.presence_penalty is not None:
             options["presence_penalty"] = request.presence_penalty
         if request.frequency_penalty is not None:
-            options["repeat_penalty"] = 1.0 + request.frequency_penalty  # Ollama's equivalent
+            # Ollama's repeat_penalty must be >= 0
+            # Convert from frequency_penalty (-2.0 to 2.0) to repeat_penalty (0.0+)
+            repeat_penalty = 1.0 + request.frequency_penalty
+            options["repeat_penalty"] = max(0.0, repeat_penalty)
         
         if options:
             ollama_request["options"] = options

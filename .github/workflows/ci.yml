@@ -117,6 +117,57 @@ jobs:
           path: test-results.xml
 
   # ===========================================================================
+  # SonarQube Job - Code Quality & Security Analysis
+  # ===========================================================================
+  sonarqube:
+    name: SonarQube Analysis
+    needs: [test]  # Needs test coverage reports
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for SonarQube blame data
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results
+          path: .
+        continue-on-error: true  # Don't fail if artifact doesn't exist
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run tests with coverage (for SonarQube)
+        run: |
+          pytest tests/unit -v \
+            --cov=src \
+            --cov-report=xml \
+            --junitxml=test-results.xml
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: SonarQube Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@master
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # ===========================================================================
   # Security Job - Vulnerability Scanning
   # ===========================================================================
   security:
@@ -190,7 +241,7 @@ jobs:
   # ===========================================================================
   build:
     name: Build & Push
-    needs: [lint, test, security, helm-lint]
+    needs: [lint, test, security, sonarqube, helm-lint]
     runs-on: ubuntu-latest
     permissions:
       contents: read

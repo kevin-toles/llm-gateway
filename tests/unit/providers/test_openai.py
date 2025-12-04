@@ -765,8 +765,8 @@ class TestOpenAIProviderErrors:
         """
         from src.providers.openai import ProviderError
 
-        error = ProviderError("Test error")
-        assert str(error) == "Test error"
+        error = ProviderError("Test error", provider="openai")
+        assert "Test error" in str(error)
 
     def test_rate_limit_error_is_importable(self) -> None:
         """
@@ -775,7 +775,7 @@ class TestOpenAIProviderErrors:
         from src.providers.openai import RateLimitError
 
         error = RateLimitError("Rate limit exceeded")
-        assert str(error) == "Rate limit exceeded"
+        assert "Rate limit exceeded" in str(error)
 
     def test_authentication_error_is_importable(self) -> None:
         """
@@ -783,8 +783,8 @@ class TestOpenAIProviderErrors:
         """
         from src.providers.openai import AuthenticationError
 
-        error = AuthenticationError("Invalid API key")
-        assert str(error) == "Invalid API key"
+        error = AuthenticationError("Invalid API key", provider="openai")
+        assert "Invalid API key" in str(error)
 
 
 # =============================================================================

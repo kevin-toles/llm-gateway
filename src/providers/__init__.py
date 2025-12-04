@@ -22,14 +22,16 @@ from src.providers.anthropic import AnthropicToolHandler
 from src.providers.openai import (
     OpenAIProvider,
     OpenAIToolHandler,
+)
+from src.core.exceptions import (
     ProviderError,
     RateLimitError,
     AuthenticationError,
 )
 from src.providers.ollama import (
     OllamaProvider,
-    ConnectionError as OllamaConnectionError,
-    TimeoutError as OllamaTimeoutError,
+    OllamaConnectionError,
+    OllamaTimeoutError,
 )
 from src.providers.router import (
     ProviderRouter,

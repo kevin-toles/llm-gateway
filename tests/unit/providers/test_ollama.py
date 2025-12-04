@@ -521,7 +521,7 @@ class TestOllamaProviderConnectionErrors:
         """
         WBS 2.3.4.1.12: Handles connection errors gracefully.
         """
-        from src.providers.ollama import OllamaProvider, ConnectionError
+        from src.providers.ollama import OllamaProvider, OllamaConnectionError
         import httpx
 
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -535,7 +535,7 @@ class TestOllamaProviderConnectionErrors:
 
             provider = OllamaProvider()
 
-            with pytest.raises(ConnectionError) as exc_info:
+            with pytest.raises(OllamaConnectionError) as exc_info:
                 await provider.complete(sample_request)
 
             assert "Connection refused" in str(exc_info.value) or "connect" in str(exc_info.value).lower()
@@ -550,7 +550,7 @@ class TestOllamaProviderConnectionErrors:
         
         Pattern: Timeout configuration (GUIDELINES pp. 2309)
         """
-        from src.providers.ollama import OllamaProvider, TimeoutError
+        from src.providers.ollama import OllamaProvider, OllamaTimeoutError
         import httpx
 
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -564,7 +564,7 @@ class TestOllamaProviderConnectionErrors:
 
             provider = OllamaProvider()
 
-            with pytest.raises(TimeoutError) as exc_info:
+            with pytest.raises(OllamaTimeoutError) as exc_info:
                 await provider.complete(sample_request)
 
             assert "timed out" in str(exc_info.value).lower()
@@ -577,7 +577,7 @@ class TestOllamaProviderConnectionErrors:
         """
         WBS 2.3.4.1.12: Handles HTTP errors gracefully.
         """
-        from src.providers.ollama import OllamaProvider, ProviderError
+        from src.providers.ollama import OllamaProvider, OllamaProviderError
         import httpx
 
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -599,7 +599,7 @@ class TestOllamaProviderConnectionErrors:
 
             provider = OllamaProvider()
 
-            with pytest.raises(ProviderError):
+            with pytest.raises(OllamaProviderError):
                 await provider.complete(sample_request)
 
 
@@ -613,29 +613,29 @@ class TestOllamaProviderErrorClasses:
 
     def test_provider_error_is_importable(self) -> None:
         """
-        WBS 2.3.4.1.12: ProviderError is importable.
+        WBS 2.3.4.1.12: ProviderError is importable from core.exceptions.
         """
-        from src.providers.ollama import ProviderError
+        from src.core.exceptions import ProviderError
 
-        error = ProviderError("Test error")
-        assert str(error) == "Test error"
+        error = ProviderError("Test error", provider="ollama")
+        assert "Test error" in str(error)
 
     def test_connection_error_is_importable(self) -> None:
         """
-        WBS 2.3.4.1.12: ConnectionError is importable.
+        WBS 2.3.4.1.12: OllamaConnectionError is importable.
         """
-        from src.providers.ollama import ConnectionError
+        from src.providers.ollama import OllamaConnectionError
 
-        error = ConnectionError("Connection failed")
+        error = OllamaConnectionError("Connection failed")
         assert str(error) == "Connection failed"
 
     def test_timeout_error_is_importable(self) -> None:
         """
-        WBS 2.3.4.1.12: TimeoutError is importable.
+        WBS 2.3.4.1.12: OllamaTimeoutError is importable.
         """
-        from src.providers.ollama import TimeoutError
+        from src.providers.ollama import OllamaTimeoutError
 
-        error = TimeoutError("Request timed out")
+        error = OllamaTimeoutError("Request timed out")
         assert str(error) == "Request timed out"
 
 

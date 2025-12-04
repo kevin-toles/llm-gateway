@@ -10,6 +10,7 @@ Reference Documents:
 - GUIDELINES pp. 2309: Circuit breaker and resilience patterns
 - GUIDELINES pp. 1224: Retry logic with decorators
 - ANTI_PATTERN_ANALYSIS §1.1: Optional types with explicit None
+- ANTI_PATTERN_ANALYSIS §3.4: Import exceptions from core, don't duplicate
 
 Design Patterns:
 - Ports and Adapters: OpenAIProvider implements LLMProvider interface
@@ -22,6 +23,11 @@ from typing import Any, AsyncIterator, Optional
 
 from openai import AsyncOpenAI
 
+from src.core.exceptions import (
+    AuthenticationError,
+    ProviderError,
+    RateLimitError,
+)
 from src.models.requests import ChatCompletionRequest
 from src.models.responses import (
     ChatCompletionResponse,
@@ -33,38 +39,6 @@ from src.models.responses import (
     Usage,
 )
 from src.providers.base import LLMProvider
-
-
-# =============================================================================
-# WBS 2.3.3.1.12: Custom Exception Classes
-# =============================================================================
-
-
-class ProviderError(Exception):
-    """
-    Base exception for provider errors.
-    
-    WBS 2.3.3.1.12: Custom exception for provider-specific errors.
-    """
-    pass
-
-
-class RateLimitError(ProviderError):
-    """
-    Exception raised when rate limits are exceeded.
-    
-    WBS 2.3.3.1.11: Retryable error for rate limiting.
-    """
-    pass
-
-
-class AuthenticationError(ProviderError):
-    """
-    Exception raised when authentication fails.
-    
-    WBS 2.3.3.1.11: Non-retryable authentication error.
-    """
-    pass
 
 
 # =============================================================================
@@ -368,7 +342,7 @@ class OpenAIProvider(LLMProvider):
                 
                 # Check for authentication errors (don't retry)
                 if "authentication" in error_str or "api key" in error_str or "unauthorized" in error_str:
-                    raise AuthenticationError(str(e)) from e
+                    raise AuthenticationError(str(e), provider="openai") from e
                 
                 # Check for rate limit errors (retry)
                 if isinstance(e, RateLimitError):
@@ -377,7 +351,7 @@ class OpenAIProvider(LLMProvider):
                     last_error = RateLimitError(str(e))
                 else:
                     # Other errors - wrap and retry
-                    last_error = ProviderError(str(e))
+                    last_error = ProviderError(str(e), provider="openai")
                 
                 # Wait before retry (exponential backoff)
                 if attempt < self._max_retries - 1:
@@ -387,7 +361,10 @@ class OpenAIProvider(LLMProvider):
         # Exhausted retries
         if isinstance(last_error, RateLimitError):
             raise last_error
-        raise ProviderError(f"Request failed after {self._max_retries} attempts: {last_error}")
+        raise ProviderError(
+            f"Request failed after {self._max_retries} attempts: {last_error}",
+            provider="openai",
+        )
 
     # =========================================================================
     # Helper Methods

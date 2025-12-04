@@ -184,26 +184,27 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
     providers: dict[str, LLMProvider] = {}
 
     # Try to add Anthropic if API key is available
-    if settings.anthropic_api_key:
-        try:
-            from src.providers.anthropic import AnthropicProvider
+    # SecretStr.get_secret_value() returns the actual string value
+    if settings.anthropic_api_key is not None:
+        anthropic_key = settings.anthropic_api_key.get_secret_value()
+        if anthropic_key:
+            try:
+                from src.providers.anthropic import AnthropicProvider
 
-            providers["anthropic"] = AnthropicProvider(
-                api_key=settings.anthropic_api_key.get_secret_value()
-            )
-        except ImportError:
-            logger.warning("AnthropicProvider not yet implemented, skipping")
+                providers["anthropic"] = AnthropicProvider(api_key=anthropic_key)
+            except ImportError:
+                logger.warning("AnthropicProvider not yet implemented, skipping")
 
     # Try to add OpenAI if API key is available
-    if settings.openai_api_key:
-        try:
-            from src.providers.openai import OpenAIProvider
+    if settings.openai_api_key is not None:
+        openai_key = settings.openai_api_key.get_secret_value()
+        if openai_key:
+            try:
+                from src.providers.openai import OpenAIProvider
 
-            providers["openai"] = OpenAIProvider(
-                api_key=settings.openai_api_key.get_secret_value()
-            )
-        except ImportError:
-            logger.warning("OpenAIProvider not yet implemented, skipping")
+                providers["openai"] = OpenAIProvider(api_key=openai_key)
+            except ImportError:
+                logger.warning("OpenAIProvider not yet implemented, skipping")
 
     # Try to add Ollama (local, no API key needed)
     try:

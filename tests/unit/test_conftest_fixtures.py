@@ -144,8 +144,8 @@ class TestSettingsFixture:
 
     def test_test_settings_has_api_keys(self, test_settings) -> None:
         """test_settings has test API keys configured."""
-        assert test_settings.anthropic_api_key == "test-anthropic-key"
-        assert test_settings.openai_api_key == "test-openai-key"
+        assert test_settings.anthropic_api_key.get_secret_value() == "test-anthropic-key"
+        assert test_settings.openai_api_key.get_secret_value() == "test-openai-key"
 
     def test_test_settings_has_redis_url(self, test_settings) -> None:
         """test_settings has redis_url configured."""

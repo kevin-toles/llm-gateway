@@ -33,6 +33,7 @@ class ErrorCode(str, Enum):
 
     GATEWAY_ERROR = "GATEWAY_ERROR"
     PROVIDER_ERROR = "PROVIDER_ERROR"
+    AUTHENTICATION_ERROR = "AUTHENTICATION_ERROR"
     SESSION_ERROR = "SESSION_ERROR"
     TOOL_EXECUTION_ERROR = "TOOL_EXECUTION_ERROR"
     RATE_LIMIT_ERROR = "RATE_LIMIT_ERROR"
@@ -243,6 +244,41 @@ class RateLimitError(LLMGatewayException):
         super().__init__(message, error_code, **kwargs)
         self.retry_after = retry_after
         self.limit = limit
+
+
+# =============================================================================
+# WBS 2.1.2.3.6b: AuthenticationError (Provider Authentication)
+# =============================================================================
+
+
+class AuthenticationError(ProviderError):
+    """
+    Exception for provider authentication failures.
+    
+    WBS 2.1.2.3.6b: Implement AuthenticationError for auth issues.
+    
+    Raised when authentication with an LLM provider fails,
+    including invalid API keys, expired tokens, or unauthorized access.
+    This is a non-retryable error.
+    
+    Anti-pattern avoided: Duplicate exception definitions (CODING_PATTERNS §3.4)
+    """
+
+    def __init__(
+        self,
+        message: str,
+        provider: str = "unknown",
+        **kwargs: Any,
+    ) -> None:
+        """
+        Initialize the authentication error.
+        
+        Args:
+            message: Human-readable error message.
+            provider: Name of the LLM provider.
+            **kwargs: Additional attributes.
+        """
+        super().__init__(message, provider=provider, status_code=401, **kwargs)
 
 
 # =============================================================================

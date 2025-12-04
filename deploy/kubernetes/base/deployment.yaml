@@ -53,6 +53,11 @@ spec:
         app.kubernetes.io/version: "0.1.0"
       annotations:
         # Force pod restart on ConfigMap/Secret changes
+        # NOTE: These placeholders must be replaced during deployment:
+        # - For Kustomize: Use configMapGenerator with hashSuffix or external tool
+        # - For manual: Replace with actual checksums: sha256sum configmap.yaml | cut -c1-16
+        # - For CI/CD: Use envsubst or sed to replace before kubectl apply
+        # DO NOT use Helm template syntax here - this is a Kustomize base file
         checksum/config: "PLACEHOLDER_CONFIG_CHECKSUM"
         checksum/secret: "PLACEHOLDER_SECRET_CHECKSUM"
         
@@ -156,9 +161,10 @@ spec:
           # -----------------------------------------------------------------
           # Determines if the container is running. If it fails, the container
           # will be restarted.
+          # Endpoint: GET /health (src/api/routes/health.py)
           livenessProbe:
             httpGet:
-              path: /live
+              path: /health
               port: http
             initialDelaySeconds: 30
             periodSeconds: 30
@@ -170,9 +176,10 @@ spec:
           # Readiness Probe
           # -----------------------------------------------------------------
           # Determines if the container is ready to receive traffic.
+          # Endpoint: GET /health/ready (src/api/routes/health.py)
           readinessProbe:
             httpGet:
-              path: /ready
+              path: /health/ready
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
