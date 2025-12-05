@@ -160,6 +160,90 @@ cat test-results/junit.xml
 
 ---
 
+## Consumer Integration (llm-document-enhancer)
+
+### WBS 3.1.3.2 - Document Enhancer Docker Integration
+
+The llm-document-enhancer service connects to the gateway via the shared `llm-network`. There are two deployment modes:
+
+#### Mode 1: Standalone (Gateway included in document-enhancer stack)
+
+```bash
+# In llm-document-enhancer directory
+cd /Users/kevintoles/POC/llm-document-enhancer
+
+# Start full stack (includes gateway and redis)
+docker compose up -d
+
+# Verify all services
+docker compose ps
+```
+
+#### Mode 2: External Gateway (Gateway already running)
+
+```bash
+# First, ensure llm-gateway is running
+cd /Users/kevintoles/POC/llm-gateway
+docker compose up -d
+
+# Then start document-enhancer with external gateway config
+cd /Users/kevintoles/POC/llm-document-enhancer
+docker compose -f docker-compose.external.yml up document-enhancer -d
+```
+
+### Verifying Document Enhancer Connectivity
+
+```bash
+# Check document-enhancer can reach gateway
+docker exec llm-document-enhancer curl -s http://llm-gateway:8080/health
+
+# Check environment variables are set
+docker exec llm-document-enhancer env | grep DOC_ENHANCER
+
+# Expected output:
+# DOC_ENHANCER_GATEWAY_URL=http://llm-gateway:8080
+# DOC_ENHANCER_GATEWAY_ENABLED=true
+# DOC_ENHANCER_GATEWAY_TIMEOUT=30.0
+# DOC_ENHANCER_GATEWAY_SESSION_TTL=3600.0
+```
+
+### Network Troubleshooting
+
+```bash
+# Verify llm-network exists
+docker network ls | grep llm-network
+
+# Inspect network to see connected containers
+docker network inspect llm-network
+
+# If network doesn't exist, create it manually
+docker network create llm-network
+
+# Then start services
+docker compose up -d
+```
+
+### Common Consumer Issues
+
+**Issue: Document enhancer can't reach gateway**
+```
+ConnectionError: Cannot connect to http://llm-gateway:8080
+```
+
+**Solutions:**
+1. Verify both services are on the same network: `docker network inspect llm-network`
+2. Check gateway is healthy: `docker exec llm-gateway curl -s localhost:8080/health`
+3. Ensure container names match (gateway should be `llm-gateway`)
+
+**Issue: Gateway URL not set**
+```
+ValueError: DOC_ENHANCER_GATEWAY_URL must start with http:// or https://
+```
+
+**Solution:** Ensure `.env` file exists in llm-document-enhancer directory or environment variables are set in docker-compose.yml.
+
+---
+
 ## Common Docker Commands Reference
 
 ```bash
@@ -201,4 +285,5 @@ kill -9 <PID>
 ---
 
 *Document created: December 1, 2025*
-*WBS Reference: 1.2.4.4.6*
+*Last updated: December 4, 2025*
+*WBS Reference: 1.2.4.4.6, 3.1.3.2*
