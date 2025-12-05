@@ -126,3 +126,4 @@ dmypy.json
 *.lock
 *.code-workspace
 .scannerwork/
+test-results.xml
