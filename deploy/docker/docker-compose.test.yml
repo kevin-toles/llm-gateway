@@ -1,0 +1,107 @@
+# ==============================================================================
+# LLM Gateway - Docker Compose Test Environment
+# ==============================================================================
+# Integration test environment for CI/CD
+# Usage: docker-compose -f docker-compose.test.yml run --rm tests
+# See docs/DEPLOYMENT_IMPLEMENTATION_PLAN.md Section 1.2.4 for implementation
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # Redis - Test Instance (Isolated)
+  # ============================================================================
+  redis-test:
+    image: redis:7-alpine
+    container_name: llm-gateway-redis-test
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    networks:
+      - llm-test-network
+    # No port exposure - internal only
+
+  # ============================================================================
+  # LLM Gateway - Test Instance
+  # ============================================================================
+  llm-gateway-test:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    container_name: llm-gateway-test
+    environment:
+      LLM_GATEWAY_ENV: test
+      LLM_GATEWAY_PORT: "8080"
+      LLM_GATEWAY_LOG_LEVEL: WARNING
+      LLM_GATEWAY_WORKERS: "1"
+      LLM_GATEWAY_REDIS_URL: redis://redis-test:6379
+      LLM_GATEWAY_SEMANTIC_SEARCH_URL: http://semantic-search-test:8081
+      LLM_GATEWAY_AI_AGENTS_URL: http://ai-agents-test:8082
+      LLM_GATEWAY_DEFAULT_PROVIDER: anthropic
+      LLM_GATEWAY_DEFAULT_MODEL: claude-3-sonnet-20240229
+      LLM_GATEWAY_RATE_LIMIT_REQUESTS_PER_MINUTE: "1000"
+      LLM_GATEWAY_SESSION_TTL_SECONDS: "300"
+      # Test API keys (mock/test values)
+      LLM_GATEWAY_ANTHROPIC_API_KEY: test-anthropic-key
+      LLM_GATEWAY_OPENAI_API_KEY: test-openai-key
+    depends_on:
+      redis-test:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - llm-test-network
+    # No TTY for CI/CD
+    tty: false
+    stdin_open: false
+
+  # ============================================================================
+  # Test Runner Service
+  # ============================================================================
+  tests:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.dev
+    container_name: llm-gateway-tests
+    environment:
+      # Test configuration
+      PYTHONPATH: /app/src
+      PYTEST_ADDOPTS: "-v --tb=short"
+      
+      # Point to test services
+      LLM_GATEWAY_URL: http://llm-gateway-test:8080
+      LLM_GATEWAY_REDIS_URL: redis://redis-test:6379
+      
+      # Test mode
+      LLM_GATEWAY_ENV: test
+    volumes:
+      # Mount test files
+      - ../../tests:/app/tests:ro
+      - ../../src:/app/src:ro
+      
+      # Test results output
+      - ../../test-results:/app/test-results
+    depends_on:
+      llm-gateway-test:
+        condition: service_healthy
+    networks:
+      - llm-test-network
+    # No TTY for CI/CD - proper exit codes
+    tty: false
+    stdin_open: false
+    # Run tests and exit
+    command: ["pytest", "tests/", "-v", "--tb=short", "--junitxml=/app/test-results/junit.xml"]
+
+# ==============================================================================
+# Networks - Isolated Test Network
+# ==============================================================================
+networks:
+  llm-test-network:
+    name: llm-test-network
+    driver: bridge
