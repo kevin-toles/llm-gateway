@@ -497,3 +497,152 @@ class TestAnthropicProviderExports:
         assert isinstance(SUPPORTED_MODELS, list)
         assert len(SUPPORTED_MODELS) > 0
 
+
+# =============================================================================
+# Cognitive Complexity Refactoring Tests
+# TDD for Extract Method pattern to reduce complexity below 15
+# =============================================================================
+
+
+class TestAnthropicProviderErrorClassification:
+    """Tests for _classify_error() helper method - extracted from _execute_with_retry()."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create provider instance for testing."""
+        from src.providers.anthropic import AnthropicProvider
+        return AnthropicProvider(api_key="test-key")
+
+    def test_classify_error_authentication_error(self, provider) -> None:
+        """_classify_error returns 'auth' for authentication errors."""
+        assert provider._classify_error("authentication failed") == "auth"
+        assert provider._classify_error("invalid api key") == "auth"
+        assert provider._classify_error("unauthorized access") == "auth"
+        assert provider._classify_error("invalid_api_key error") == "auth"
+
+    def test_classify_error_rate_limit_error(self, provider) -> None:
+        """_classify_error returns 'rate_limit' for rate limit errors."""
+        assert provider._classify_error("rate limit exceeded") == "rate_limit"
+        assert provider._classify_error("429 too many requests") == "rate_limit"
+
+    def test_classify_error_other_error(self, provider) -> None:
+        """_classify_error returns 'other' for unrecognized errors."""
+        assert provider._classify_error("connection timeout") == "other"
+        assert provider._classify_error("server error 500") == "other"
+
+
+class TestAnthropicProviderMessageTransformHelpers:
+    """Tests for message transformation helpers - extracted from _transform_messages()."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create provider instance for testing."""
+        from src.providers.anthropic import AnthropicProvider
+        return AnthropicProvider(api_key="test-key")
+
+    def test_transform_tool_message(self, provider) -> None:
+        """_transform_tool_message converts tool message to Anthropic format."""
+        tool_msg = {
+            "role": "tool",
+            "tool_call_id": "call_123",
+            "content": "Tool result here",
+        }
+        result = provider._transform_tool_message(tool_msg)
+        
+        assert result["role"] == "user"
+        assert isinstance(result["content"], list)
+
+    def test_transform_assistant_with_tool_calls(self, provider) -> None:
+        """_transform_assistant_tool_message handles tool_calls."""
+        assistant_msg = {
+            "role": "assistant",
+            "content": "Let me use a tool",
+            "tool_calls": [
+                {
+                    "id": "call_123",
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": '{"city": "NYC"}',
+                    },
+                }
+            ],
+        }
+        result = provider._transform_assistant_tool_message(assistant_msg)
+        
+        assert result["role"] == "assistant"
+        assert isinstance(result["content"], list)
+        # Should have text block and tool_use block
+        content_types = [c["type"] for c in result["content"]]
+        assert "text" in content_types
+        assert "tool_use" in content_types
+
+
+class TestAnthropicProviderStreamEventHandlers:
+    """Tests for stream event handlers - extracted from stream()."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create provider instance for testing."""
+        from src.providers.anthropic import AnthropicProvider
+        return AnthropicProvider(api_key="test-key")
+
+    def test_handle_message_start_event(self, provider) -> None:
+        """_handle_message_start extracts id and model from event."""
+        event = MagicMock()
+        event.message.id = "msg_123"
+        event.message.model = "claude-3-sonnet-20240229"
+        
+        message_id, model = provider._handle_message_start(event)
+        
+        assert message_id == "msg_123"
+        assert model == "claude-3-sonnet-20240229"
+
+    def test_handle_content_delta_event(self, provider) -> None:
+        """_handle_content_delta creates chunk from content delta."""
+        from src.models.responses import ChatCompletionChunk
+        
+        event = MagicMock()
+        event.delta.text = "Hello world"
+        
+        chunk = provider._handle_content_delta(
+            event=event,
+            message_id="msg_123",
+            model="claude-3-sonnet-20240229",
+        )
+        
+        assert isinstance(chunk, ChatCompletionChunk)
+        assert chunk.id == "msg_123"
+        assert chunk.model == "claude-3-sonnet-20240229"
+        assert chunk.choices[0].delta.content == "Hello world"
+
+    def test_handle_message_delta_event_stop(self, provider) -> None:
+        """_handle_message_delta creates final chunk with finish_reason."""
+        from src.models.responses import ChatCompletionChunk
+        
+        event = MagicMock()
+        event.delta.stop_reason = "end_turn"
+        
+        chunk = provider._handle_message_delta(
+            event=event,
+            message_id="msg_123",
+            model="claude-3-sonnet-20240229",
+        )
+        
+        assert isinstance(chunk, ChatCompletionChunk)
+        assert chunk.choices[0].finish_reason == "stop"
+
+    def test_handle_message_delta_event_tool_use(self, provider) -> None:
+        """_handle_message_delta handles tool_use stop reason."""
+        from src.models.responses import ChatCompletionChunk
+        
+        event = MagicMock()
+        event.delta.stop_reason = "tool_use"
+        
+        chunk = provider._handle_message_delta(
+            event=event,
+            message_id="msg_123",
+            model="claude-3-sonnet-20240229",
+        )
+        
+        assert chunk.choices[0].finish_reason == "tool_use"
+

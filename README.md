@@ -202,7 +202,33 @@ The project includes GitHub Actions workflows for:
 - **CD-Staging** (`cd-staging.yml`): Deploy to staging on push to `main`
 - **CD-Production** (`cd-prod.yml`): Deploy to production on release
 
-See [.github/SECRETS.md](.github/SECRETS.md) for required repository secrets.
+### Required Secrets (Quick Reference)
+
+Configure these in **Settings → Secrets and variables → Actions**:
+
+| Secret | Required For | How to Obtain |
+|--------|--------------|---------------|
+| `ANTHROPIC_API_KEY` | CI tests, CD deployments | [Anthropic Console](https://console.anthropic.com/) |
+| `OPENAI_API_KEY` | CI tests, CD deployments | [OpenAI Platform](https://platform.openai.com/api-keys) |
+| `KUBE_CONFIG_DEV` | CD-Dev | `cat ~/.kube/config \| base64` |
+| `KUBE_CONFIG_STAGING` | CD-Staging | `cat ~/.kube/config \| base64` |
+| `KUBE_CONFIG_PROD` | CD-Production | `cat ~/.kube/config \| base64` |
+| `SONAR_TOKEN` | CI security scan | [SonarCloud](https://sonarcloud.io/account/security) or SonarQube |
+| `SONAR_HOST_URL` | CI security scan | Your SonarQube server URL (not needed for SonarCloud) |
+| `CODECOV_TOKEN` | CI coverage upload | [Codecov Dashboard](https://codecov.io/) |
+| `SLACK_WEBHOOK` | CD notifications | [Slack Apps](https://api.slack.com/messaging/webhooks) |
+
+**Quick setup with GitHub CLI:**
+```bash
+# Set API keys from environment
+gh secret set ANTHROPIC_API_KEY --body "$ANTHROPIC_API_KEY"
+gh secret set OPENAI_API_KEY --body "$OPENAI_API_KEY"
+
+# Set base64-encoded kubeconfig
+cat ~/.kube/config | base64 | gh secret set KUBE_CONFIG_STAGING
+```
+
+See [.github/SECRETS.md](.github/SECRETS.md) for detailed setup instructions and security best practices.
 
 ## Architecture
 

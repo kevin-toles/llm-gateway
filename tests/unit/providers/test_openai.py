@@ -1147,3 +1147,113 @@ class TestOpenAIProviderRetrySDKExceptions:
             with pytest.raises(RateLimitError):
                 await provider.complete(sample_request)
 
+
+# =============================================================================
+# WBS 2.3.3.1: Cognitive Complexity Reduction - Helper Method Tests
+# Pattern: Extract Method (CODING_PATTERNS_ANALYSIS pp. 390)
+# =============================================================================
+
+
+class TestOpenAIProviderErrorClassification:
+    """
+    TDD tests for _classify_error() helper method.
+
+    These tests verify error classification extracted from _execute_with_retry()
+    to reduce its cognitive complexity.
+    """
+
+    def test_classify_error_authentication_error(self) -> None:
+        """Test that authentication errors are classified correctly."""
+        from src.providers.openai import OpenAIProvider
+
+        with patch("src.providers.openai.AsyncOpenAI"):
+            provider = OpenAIProvider(api_key="test-key")
+
+        # Test authentication keywords
+        assert provider._classify_error("Authentication failed") == "auth"
+        assert provider._classify_error("Invalid API key") == "auth"
+        assert provider._classify_error("Unauthorized access") == "auth"
+
+    def test_classify_error_rate_limit_error(self) -> None:
+        """Test that rate limit errors are classified correctly."""
+        from src.providers.openai import OpenAIProvider
+
+        with patch("src.providers.openai.AsyncOpenAI"):
+            provider = OpenAIProvider(api_key="test-key")
+
+        # Test rate limit keywords
+        assert provider._classify_error("Rate limit exceeded") == "rate_limit"
+        assert provider._classify_error("Error 429: Too many requests") == "rate_limit"
+
+    def test_classify_error_other_error(self) -> None:
+        """Test that other errors are classified as 'other'."""
+        from src.providers.openai import OpenAIProvider
+
+        with patch("src.providers.openai.AsyncOpenAI"):
+            provider = OpenAIProvider(api_key="test-key")
+
+        # Test other errors
+        assert provider._classify_error("Connection timeout") == "other"
+        assert provider._classify_error("Internal server error") == "other"
+
+
+class TestOpenAIProviderRequestKwargsHelpers:
+    """
+    TDD tests for helper methods extracted from _build_request_kwargs().
+
+    These tests verify message transformation extracted to reduce complexity.
+    """
+
+    def test_transform_message_basic(self) -> None:
+        """Test basic message transformation."""
+        from src.providers.openai import OpenAIProvider
+        from src.models.requests import Message
+
+        with patch("src.providers.openai.AsyncOpenAI"):
+            provider = OpenAIProvider(api_key="test-key")
+
+        msg = Message(role="user", content="Hello")
+        result = provider._transform_message(msg)
+
+        assert result["role"] == "user"
+        assert result["content"] == "Hello"
+
+    def test_transform_message_with_tool_calls(self) -> None:
+        """Test message transformation with tool_calls."""
+        from src.providers.openai import OpenAIProvider
+        from src.models.requests import Message
+
+        with patch("src.providers.openai.AsyncOpenAI"):
+            provider = OpenAIProvider(api_key="test-key")
+
+        msg = Message(
+            role="assistant",
+            content=None,
+            tool_calls=[{"id": "call_123", "type": "function"}],
+        )
+        result = provider._transform_message(msg)
+
+        assert result["role"] == "assistant"
+        assert result["tool_calls"] == [{"id": "call_123", "type": "function"}]
+
+    def test_build_optional_params(self) -> None:
+        """Test building optional parameters dict."""
+        from src.providers.openai import OpenAIProvider
+        from src.models.requests import ChatCompletionRequest, Message
+
+        with patch("src.providers.openai.AsyncOpenAI"):
+            provider = OpenAIProvider(api_key="test-key")
+
+        request = ChatCompletionRequest(
+            model="gpt-4",
+            messages=[Message(role="user", content="Hi")],
+            temperature=0.7,
+            max_tokens=100,
+            top_p=0.9,
+        )
+        result = provider._build_optional_params(request)
+
+        assert result["temperature"] == 0.7
+        assert result["max_tokens"] == 100
+        assert result["top_p"] == 0.9
+

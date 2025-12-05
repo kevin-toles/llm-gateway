@@ -10,26 +10,33 @@ This document lists all the secrets required for the CI/CD workflows to function
 |--------|-------------|--------------|
 | `GITHUB_TOKEN` | Automatically provided by GitHub Actions | Container registry login, deployments |
 
-### Container Registry
+### Code Quality & Coverage
 
-| Secret | Description | Required For |
-|--------|-------------|--------------|
-| `CODECOV_TOKEN` | Codecov.io upload token | CI - Test coverage upload |
+| Secret | Description | Required For | How to Obtain |
+|--------|-------------|--------------|---------------|
+| `SONAR_TOKEN` | SonarQube/SonarCloud authentication token | CI - Security scan | [SonarCloud Security](https://sonarcloud.io/account/security) or your SonarQube instance |
+| `SONAR_HOST_URL` | SonarQube server URL (omit for SonarCloud) | CI - Security scan | Your SonarQube server (e.g., `https://sonarqube.example.com`) |
+| `CODECOV_TOKEN` | Codecov.io upload token | CI - Test coverage upload | [Codecov Dashboard](https://codecov.io/) |
 
 ### Kubernetes Credentials
 
-| Secret | Description | Required For | Format |
-|--------|-------------|--------------|--------|
+| Secret | Description | Required For | How to Generate |
+|--------|-------------|--------------|------------------|
 | `KUBE_CONFIG_DEV` | Base64-encoded kubeconfig for dev cluster | CD-Dev | `cat ~/.kube/config \| base64` |
 | `KUBE_CONFIG_STAGING` | Base64-encoded kubeconfig for staging cluster | CD-Staging | `cat ~/.kube/config \| base64` |
 | `KUBE_CONFIG_PROD` | Base64-encoded kubeconfig for production cluster | CD-Production | `cat ~/.kube/config \| base64` |
 
+> **Note:** For cloud providers, use service account credentials with minimal required permissions:
+> - **AWS EKS:** Create an IAM user with EKS access, use `aws eks update-kubeconfig`
+> - **GKE:** Use `gcloud container clusters get-credentials`
+> - **AKS:** Use `az aks get-credentials`
+
 ### LLM Provider API Keys
 
-| Secret | Description | Required For |
-|--------|-------------|--------------|
-| `ANTHROPIC_API_KEY` | Anthropic Claude API key | CD-Production (Helm deployment) |
-| `OPENAI_API_KEY` | OpenAI API key | CD-Production (Helm deployment) |
+| Secret | Description | Required For | How to Obtain |
+|--------|-------------|--------------|---------------|
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key | CI tests, CD deployments | [Anthropic Console](https://console.anthropic.com/) |
+| `OPENAI_API_KEY` | OpenAI API key | CI tests, CD deployments | [OpenAI Platform](https://platform.openai.com/api-keys) |
 
 ### Redis (Staging)
 
@@ -39,9 +46,9 @@ This document lists all the secrets required for the CI/CD workflows to function
 
 ### Notifications
 
-| Secret | Description | Required For |
-|--------|-------------|--------------|
-| `SLACK_WEBHOOK` | Slack incoming webhook URL | All CD workflows (notifications) |
+| Secret | Description | Required For | How to Obtain |
+|--------|-------------|--------------|---------------|
+| `SLACK_WEBHOOK` | Slack incoming webhook URL | All CD workflows (notifications) | [Slack Incoming Webhooks](https://api.slack.com/messaging/webhooks) |
 
 ## Setting Up Secrets
 

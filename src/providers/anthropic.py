@@ -23,7 +23,8 @@ Format Differences (OpenAI → Anthropic):
 import asyncio
 import json
 import time
-from typing import Any, AsyncIterator, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 from anthropic import AsyncAnthropic
 
@@ -34,8 +35,8 @@ from src.core.exceptions import (
 )
 from src.models.requests import ChatCompletionRequest
 from src.models.responses import (
-    ChatCompletionResponse,
     ChatCompletionChunk,
+    ChatCompletionResponse,
     Choice,
     ChoiceMessage,
     ChunkChoice,
@@ -43,7 +44,6 @@ from src.models.responses import (
     Usage,
 )
 from src.providers.base import LLMProvider
-
 
 # =============================================================================
 # WBS 2.3.2.1.7: Supported Models
@@ -64,7 +64,6 @@ SUPPORTED_MODELS = [
     # Claude Instant (legacy)
     "claude-instant-1.2",
 ]
-
 
 
 # =============================================================================
@@ -127,9 +126,7 @@ class AnthropicToolHandler:
 
         anthropic_tool: dict[str, Any] = {
             "name": function_def.get("name", ""),
-            "input_schema": function_def.get(
-                "parameters", {"type": "object", "properties": {}}
-            ),
+            "input_schema": function_def.get("parameters", {"type": "object", "properties": {}}),
         }
 
         # Handle optional description - Pattern: Optional[T] (ANTI_PATTERN §1.1)
@@ -145,9 +142,7 @@ class AnthropicToolHandler:
 
         return anthropic_tool
 
-    def transform_tools(
-        self, openai_tools: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def transform_tools(self, openai_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Transform a list of OpenAI tools to Anthropic format.
 
@@ -165,9 +160,7 @@ class AnthropicToolHandler:
     # WBS 2.3.2.2.2: Tool Use Response Parsing
     # =========================================================================
 
-    def parse_tool_use_response(
-        self, content_blocks: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def parse_tool_use_response(self, content_blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Parse Anthropic tool_use content blocks to OpenAI tool_calls format.
 
@@ -280,9 +273,7 @@ class AnthropicToolHandler:
 
         return result
 
-    def format_tool_result_message(
-        self, openai_tool_message: dict[str, Any]
-    ) -> dict[str, Any]:
+    def format_tool_result_message(self, openai_tool_message: dict[str, Any]) -> dict[str, Any]:
         """
         Transform OpenAI tool message to Anthropic user message with tool_result.
 
@@ -312,9 +303,7 @@ class AnthropicToolHandler:
 
         return {"role": "user", "content": [tool_result]}
 
-    def format_tool_results(
-        self, openai_tool_messages: list[dict[str, Any]]
-    ) -> dict[str, Any]:
+    def format_tool_results(self, openai_tool_messages: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Transform multiple OpenAI tool messages to single Anthropic message.
 
@@ -396,9 +385,7 @@ class AnthropicProvider(LLMProvider):
     # WBS 2.3.2.1.4: complete() method
     # =========================================================================
 
-    async def complete(
-        self, request: ChatCompletionRequest
-    ) -> ChatCompletionResponse:
+    async def complete(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
         """
         Generate a chat completion response (non-streaming).
 
@@ -431,9 +418,7 @@ class AnthropicProvider(LLMProvider):
     # WBS 2.3.2.1.5: stream() method
     # =========================================================================
 
-    async def stream(
-        self, request: ChatCompletionRequest
-    ) -> AsyncIterator[ChatCompletionChunk]:
+    async def stream(self, request: ChatCompletionRequest) -> AsyncIterator[ChatCompletionChunk]:
         """
         Generate a streaming chat completion response.
 
@@ -450,53 +435,28 @@ class AnthropicProvider(LLMProvider):
             RateLimitError: On rate limit errors.
             AuthenticationError: On auth errors.
         """
-        # Build request kwargs
         kwargs = self._build_request_kwargs(request)
 
         try:
             async with self._client.messages.stream(**kwargs) as stream:
-                message_id: Optional[str] = None
-                model: Optional[str] = None
+                message_id: str | None = None
+                model: str | None = None
 
                 async for event in stream:
                     if event.type == "message_start":
-                        message_id = event.message.id
-                        model = event.message.model
+                        message_id, model = self._handle_message_start(event)
                     elif event.type == "content_block_delta":
                         if hasattr(event.delta, "text"):
-                            yield ChatCompletionChunk(
-                                id=message_id or "unknown",
-                                model=model or request.model,
-                                choices=[
-                                    ChunkChoice(
-                                        index=0,
-                                        delta=ChunkDelta(
-                                            role="assistant",
-                                            content=event.delta.text,
-                                        ),
-                                        finish_reason=None,
-                                    )
-                                ],
+                            yield self._handle_content_delta(
+                                event,
+                                message_id or "unknown",
+                                model or request.model,
                             )
                     elif event.type == "message_delta":
-                        # Final chunk with finish reason
-                        finish_reason = None
-                        if hasattr(event.delta, "stop_reason"):
-                            finish_reason = (
-                                "stop"
-                                if event.delta.stop_reason == "end_turn"
-                                else event.delta.stop_reason
-                            )
-                        yield ChatCompletionChunk(
-                            id=message_id or "unknown",
-                            model=model or request.model,
-                            choices=[
-                                ChunkChoice(
-                                    index=0,
-                                    delta=ChunkDelta(),
-                                    finish_reason=finish_reason,
-                                )
-                            ],
+                        yield self._handle_message_delta(
+                            event,
+                            message_id or "unknown",
+                            model or request.model,
                         )
         except Exception as e:
             self._handle_error(e)
@@ -567,28 +527,23 @@ class AnthropicProvider(LLMProvider):
             AuthenticationError: Immediately on auth errors (no retry).
             ProviderError: On other errors after retry exhaustion.
         """
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for attempt in range(self._max_retries):
             try:
                 return await func(**kwargs)
             except Exception as e:
-                error_str = str(e).lower()
+                error_type = self._classify_error(str(e))
 
-                # Check for authentication errors (don't retry)
-                if (
-                    "authentication" in error_str
-                    or "api key" in error_str
-                    or "unauthorized" in error_str
-                    or "invalid_api_key" in error_str
-                ):
+                # Auth errors: don't retry
+                if error_type == "auth":
                     raise AuthenticationError(str(e), provider="anthropic") from e
 
-                # Check for rate limit errors (retry)
-                if "rate limit" in error_str or "429" in error_str:
+                # Rate limit errors: retry with RateLimitError
+                if error_type == "rate_limit":
                     last_error = RateLimitError(str(e))
                 else:
-                    # Other errors - wrap and retry
+                    # Other errors: wrap and retry
                     last_error = ProviderError(str(e), provider="anthropic")
 
                 # Wait before retry (exponential backoff)
@@ -608,6 +563,35 @@ class AnthropicProvider(LLMProvider):
     # WBS 2.3.2.1.9: Error Handling
     # =========================================================================
 
+    def _classify_error(self, error_str: str) -> str:
+        """
+        Classify an error string into error type.
+
+        Extracted to reduce cognitive complexity of _execute_with_retry().
+
+        Args:
+            error_str: The error message (lowercase).
+
+        Returns:
+            Error type: 'auth', 'rate_limit', or 'other'.
+        """
+        error_lower = error_str.lower()
+
+        # Authentication errors
+        if (
+            "authentication" in error_lower
+            or "api key" in error_lower
+            or "unauthorized" in error_lower
+            or "invalid_api_key" in error_lower
+        ):
+            return "auth"
+
+        # Rate limit errors
+        if "rate limit" in error_lower or "429" in error_lower:
+            return "rate_limit"
+
+        return "other"
+
     def _handle_error(self, e: Exception) -> None:
         """
         Handle and re-raise errors with appropriate types.
@@ -622,17 +606,12 @@ class AnthropicProvider(LLMProvider):
             RateLimitError: For rate limit errors.
             ProviderError: For other errors.
         """
-        error_str = str(e).lower()
+        error_type = self._classify_error(str(e))
 
-        if (
-            "authentication" in error_str
-            or "api key" in error_str
-            or "unauthorized" in error_str
-            or "invalid_api_key" in error_str
-        ):
+        if error_type == "auth":
             raise AuthenticationError(str(e), provider="anthropic") from e
 
-        if "rate limit" in error_str or "429" in error_str:
+        if error_type == "rate_limit":
             raise RateLimitError(str(e)) from e
 
         raise ProviderError(str(e), provider="anthropic") from e
@@ -641,9 +620,7 @@ class AnthropicProvider(LLMProvider):
     # Helper Methods
     # =========================================================================
 
-    def _build_request_kwargs(
-        self, request: ChatCompletionRequest
-    ) -> dict[str, Any]:
+    def _build_request_kwargs(self, request: ChatCompletionRequest) -> dict[str, Any]:
         """
         Build kwargs for Anthropic API call from request.
 
@@ -657,7 +634,7 @@ class AnthropicProvider(LLMProvider):
         messages = self._transform_messages(request.messages)
 
         # Extract system message if present
-        system: Optional[str] = None
+        system: str | None = None
         if messages and messages[0].get("role") == "system":
             system = messages[0].get("content", "")
             messages = messages[1:]
@@ -685,9 +662,146 @@ class AnthropicProvider(LLMProvider):
 
         return kwargs
 
-    def _transform_messages(
-        self, messages: list[Any]
-    ) -> list[dict[str, Any]]:
+    # =========================================================================
+    # Stream Event Handlers - Extracted for Complexity Reduction
+    # =========================================================================
+
+    def _handle_message_start(self, event: Any) -> tuple[str, str]:
+        """
+        Handle message_start event from Anthropic stream.
+
+        Extracted to reduce cognitive complexity of stream().
+
+        Args:
+            event: The message_start event.
+
+        Returns:
+            Tuple of (message_id, model).
+        """
+        return event.message.id, event.message.model
+
+    def _handle_content_delta(
+        self,
+        event: Any,
+        message_id: str,
+        model: str,
+    ) -> ChatCompletionChunk:
+        """
+        Handle content_block_delta event from Anthropic stream.
+
+        Extracted to reduce cognitive complexity of stream().
+
+        Args:
+            event: The content_block_delta event.
+            message_id: The message ID from message_start.
+            model: The model name.
+
+        Returns:
+            ChatCompletionChunk with content delta.
+        """
+        return ChatCompletionChunk(
+            id=message_id,
+            model=model,
+            created=int(time.time()),
+            choices=[
+                ChunkChoice(
+                    index=0,
+                    delta=ChunkDelta(
+                        role="assistant",
+                        content=event.delta.text,
+                    ),
+                    finish_reason=None,
+                )
+            ],
+        )
+
+    def _handle_message_delta(
+        self,
+        event: Any,
+        message_id: str,
+        model: str,
+    ) -> ChatCompletionChunk:
+        """
+        Handle message_delta event from Anthropic stream.
+
+        Extracted to reduce cognitive complexity of stream().
+
+        Args:
+            event: The message_delta event.
+            message_id: The message ID from message_start.
+            model: The model name.
+
+        Returns:
+            ChatCompletionChunk with finish_reason.
+        """
+        finish_reason = None
+        if hasattr(event.delta, "stop_reason"):
+            stop_reason = event.delta.stop_reason
+            finish_reason = "stop" if stop_reason == "end_turn" else stop_reason
+
+        return ChatCompletionChunk(
+            id=message_id,
+            model=model,
+            created=int(time.time()),
+            choices=[
+                ChunkChoice(
+                    index=0,
+                    delta=ChunkDelta(),
+                    finish_reason=finish_reason,
+                )
+            ],
+        )
+
+    # =========================================================================
+    # Message Transform Helpers - Extracted for Complexity Reduction
+    # =========================================================================
+
+    def _transform_tool_message(self, msg_dict: dict[str, Any]) -> dict[str, Any]:
+        """
+        Transform a tool message to Anthropic format.
+
+        Extracted to reduce cognitive complexity of _transform_messages().
+
+        Args:
+            msg_dict: The tool message dict.
+
+        Returns:
+            Anthropic-format tool result message.
+        """
+        return self._tool_handler.format_tool_result_message(msg_dict)
+
+    def _transform_assistant_tool_message(self, msg_dict: dict[str, Any]) -> dict[str, Any]:
+        """
+        Transform an assistant message with tool_calls to Anthropic format.
+
+        Extracted to reduce cognitive complexity of _transform_messages().
+
+        Args:
+            msg_dict: The assistant message dict with tool_calls.
+
+        Returns:
+            Anthropic-format assistant message with tool_use blocks.
+        """
+        content = msg_dict.get("content", "")
+        content_blocks: list[dict[str, Any]] = []
+
+        if content:
+            content_blocks.append({"type": "text", "text": content})
+
+        # Add tool use blocks
+        for tc in msg_dict["tool_calls"]:
+            content_blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": tc.get("id", ""),
+                    "name": tc.get("function", {}).get("name", ""),
+                    "input": json.loads(tc.get("function", {}).get("arguments", "{}")),
+                }
+            )
+
+        return {"role": "assistant", "content": content_blocks}
+
+    def _transform_messages(self, messages: list[Any]) -> list[dict[str, Any]]:
         """
         Transform OpenAI-format messages to Anthropic format.
 
@@ -701,43 +815,45 @@ class AnthropicProvider(LLMProvider):
 
         for msg in messages:
             # Handle both Pydantic models and dicts
-            if hasattr(msg, "model_dump"):
-                msg_dict = msg.model_dump()
-            else:
-                msg_dict = msg
+            msg_dict = msg.model_dump() if hasattr(msg, "model_dump") else msg
 
             role = msg_dict.get("role", "user")
             content = msg_dict.get("content", "")
 
-            # Handle tool messages - transform to Anthropic format
+            # Handle tool messages
             if role == "tool":
-                tool_result = self._tool_handler.format_tool_result_message(msg_dict)
-                # Merge consecutive tool results if last message is also user
-                if result and result[-1].get("role") == "user":
-                    if isinstance(result[-1].get("content"), list):
-                        result[-1]["content"].extend(tool_result["content"])
-                    else:
-                        result[-1] = tool_result
-                else:
-                    result.append(tool_result)
+                tool_result = self._transform_tool_message(msg_dict)
+                self._merge_tool_result(result, tool_result)
+            # Handle assistant with tool calls
             elif role == "assistant" and msg_dict.get("tool_calls"):
-                # Handle assistant message with tool calls
-                content_blocks: list[dict[str, Any]] = []
-                if content:
-                    content_blocks.append({"type": "text", "text": content})
-                # Add tool use blocks
-                for tc in msg_dict["tool_calls"]:
-                    content_blocks.append({
-                        "type": "tool_use",
-                        "id": tc.get("id", ""),
-                        "name": tc.get("function", {}).get("name", ""),
-                        "input": json.loads(
-                            tc.get("function", {}).get("arguments", "{}")
-                        ),
-                    })
-                result.append({"role": "assistant", "content": content_blocks})
+                result.append(self._transform_assistant_tool_message(msg_dict))
             else:
                 result.append({"role": role, "content": content})
+
+        return result
+
+    def _merge_tool_result(
+        self,
+        result: list[dict[str, Any]],
+        tool_result: dict[str, Any],
+    ) -> None:
+        """
+        Merge tool result into result list, combining consecutive user messages.
+
+        Extracted to reduce cognitive complexity of _transform_messages().
+
+        Args:
+            result: The result list to append to (mutated in place).
+            tool_result: The tool result message to merge.
+        """
+        # Merge consecutive tool results if last message is also user
+        if result and result[-1].get("role") == "user":
+            if isinstance(result[-1].get("content"), list):
+                result[-1]["content"].extend(tool_result["content"])
+            else:
+                result[-1] = tool_result
+        else:
+            result.append(tool_result)
 
         return result
 
@@ -761,14 +877,16 @@ class AnthropicProvider(LLMProvider):
             elif block.type == "tool_use":
                 if tool_calls is None:
                     tool_calls = []
-                tool_calls.append({
-                    "id": block.id,
-                    "type": "function",
-                    "function": {
-                        "name": block.name,
-                        "arguments": json.dumps(block.input),
-                    },
-                })
+                tool_calls.append(
+                    {
+                        "id": block.id,
+                        "type": "function",
+                        "function": {
+                            "name": block.name,
+                            "arguments": json.dumps(block.input),
+                        },
+                    }
+                )
 
         # Determine finish reason
         finish_reason = "stop"
