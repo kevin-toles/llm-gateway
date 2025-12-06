@@ -9,8 +9,12 @@ Reference Documents:
 - GUIDELINES: Tool/function calling (AI Engineering pp. 1463-1587)
 - ANTI_PATTERN_ANALYSIS: §1.1 Optional types with explicit None
 - ANTI_PATTERN_ANALYSIS: §4.1 Cognitive complexity - extract to services
+
+SonarQube Issues Addressed (December 2025):
+- Issue 45 (python:S6546): Use union type expression (X | Y) instead of Union[X, Y]
 """
 
+import inspect
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
@@ -743,3 +747,48 @@ def mock_chat_service():
     with patch("src.api.routes.chat.ChatService.create_completion") as mock:
         mock.return_value = mock_response
         yield mock
+
+
+# =============================================================================
+# SonarQube Code Quality Tests - Issue 45
+# Validates fix for python:S6546 (use union type expression)
+# =============================================================================
+
+
+class TestSonarQubeTypeAnnotationFixes:
+    """
+    Tests validating SonarQube type annotation fixes.
+    
+    Reference: Comp_Static_Analysis_Report_20251203.md Issue 45
+    - Issue 45: Use X | Y union syntax instead of Union[X, Y]
+    """
+
+    def test_create_chat_completion_uses_union_syntax(self):
+        """
+        Issue 45 (python:S6546): Return type uses X | Y union syntax.
+        
+        Verifies the fix uses PEP 604 union syntax:
+        `ChatCompletionResponse | StreamingResponse | JSONResponse`
+        instead of:
+        `Union[ChatCompletionResponse, StreamingResponse, JSONResponse]`
+        
+        Reference: GUIDELINES pp. 302-303 (Ramalho) - evolution to native union syntax
+        """
+        from src.api.routes.chat import create_chat_completion
+        import typing
+        
+        # Get return annotation
+        hints = typing.get_type_hints(create_chat_completion)
+        return_type = hints.get('return')
+        
+        # Verify it's a union type (types.UnionType in Python 3.10+)
+        assert return_type is not None, "Return type annotation missing"
+        
+        # Check that the annotation string doesn't contain 'Union['
+        # This confirms PEP 604 syntax (X | Y) is used
+        annotation_str = str(return_type)
+        assert "Union[" not in annotation_str, \
+            f"Should use X | Y syntax, not Union[...]. Got: {annotation_str}"
+        
+        # Verify it includes the expected types
+        assert "ChatCompletionResponse" in annotation_str or "Response" in annotation_str

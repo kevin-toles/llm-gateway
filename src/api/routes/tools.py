@@ -19,6 +19,8 @@ WBS 3.2.2: Search Tool Integration
 - 3.2.2.2: get_chunk tool registered and wired to semantic-search-service
 """
 
+import asyncio
+import inspect
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -50,7 +52,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-async def echo_tool(message: str) -> dict[str, Any]:
+def echo_tool(message: str) -> dict[str, Any]:
     """
     Echo tool - returns the input message.
 
@@ -63,7 +65,7 @@ async def echo_tool(message: str) -> dict[str, Any]:
     return {"echoed": message}
 
 
-async def calculator_tool(a: float, b: float, operation: str = "add") -> dict[str, Any]:
+def calculator_tool(a: float, b: float, operation: str = "add") -> dict[str, Any]:
     """
     Calculator tool - performs basic arithmetic.
 
@@ -463,9 +465,8 @@ class ToolExecutorService:
                 return False, f"Unknown argument: {arg_name}"
 
             expected_type = properties[arg_name].get("type")
-            if expected_type:
-                if not self._check_type(arg_value, expected_type):
-                    return False, f"Invalid type for '{arg_name}': expected {expected_type}"
+            if expected_type and not self._check_type(arg_value, expected_type):
+                return False, f"Invalid type for '{arg_name}': expected {expected_type}"
 
         return True, None
 
@@ -531,7 +532,12 @@ class ToolExecutorService:
 
         # Execute tool
         try:
-            result = await func(**request.arguments)
+            # Handle both sync and async tool functions (Issue 42-43 fix)
+            # Reference: GUIDELINES pp. 466, 618 - async only when awaiting
+            if inspect.iscoroutinefunction(func):
+                result = await func(**request.arguments)
+            else:
+                result = func(**request.arguments)
             return ToolExecuteResponse(
                 name=request.name,
                 result=result,

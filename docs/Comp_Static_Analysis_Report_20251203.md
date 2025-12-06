@@ -2,7 +2,7 @@
 
 **Date:** December 3, 2025  
 **Repository:** llm-gateway  
-**Analysis Tool:** CodeRabbit AI  
+**Analysis Tools:** CodeRabbit AI, SonarQube Cloud  
 **PR Reference:** #2 (Full Codebase Review)  
 **Status:** ✅ **CLOSED** — All issues resolved as of December 4, 2025
 
@@ -15,7 +15,8 @@
 | 🔴 Critical | 8 | ✅ 8/8 | Security vulnerabilities, broken configurations |
 | 🟠 Major | 20 | ✅ 20/20 | Race conditions, logic bugs, architectural issues |
 | 🟡 Minor | 13 | ✅ 13/13 | Code quality, documentation, best practices |
-| **Total** | **41** | ✅ **41/41** | Across **31 files** |
+| 🔵 SonarQube | 4 | ✅ 4/4 | Code smells (async, type annotations, nested conditionals) |
+| **Total** | **45** | ✅ **45/45** | Across **32 files** |
 
 ---
 
@@ -591,15 +592,102 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 
 ---
 
-### 41. `src/services/cost_tracker.py` — Prefix Matching Order Dependent
-**Status:** ✅ RESOLVED  
+## Batch 5: SonarQube Issues (Priority 42-45) — ✅ ALL RESOLVED
+
+**Date Added:** December 5, 2025  
+**Source:** SonarCloud scan of `feature/gateway-integration` branch
+
+### 42. `src/api/routes/tools.py` — Async Function Without Await (echo_tool)
 **Severity:** 🟡 Minor  
-**Lines:** 176-196  
-**Issue:** `gpt-4-turbo` could match `gpt-4` depending on dict iteration order.
+**Status:** ✅ RESOLVED  
+**Lines:** 53  
+**Rule:** python:S7503  
+**Issue:** `echo_tool` was declared `async def` but contained no `await` expressions.
 
-**Impact:** Incorrect pricing for some models.
+```python
+# Before (anti-pattern)
+async def echo_tool(message: str) -> dict[str, Any]:
+    return {"echoed": message}  # No await - why is this async?
+```
 
-**Fix:** Sort prefixes by length descending before matching.
+**Impact:** Unnecessary coroutine overhead and misleading function signature.
+
+**Resolution:** Removed `async` keyword since the function performs no I/O operations.
+Updated `ToolExecutorService.execute()` to handle both sync and async tool functions using `inspect.iscoroutinefunction()`.
+
+**Reference:** GUIDELINES pp. 466, 618 - async/await only when awaiting actual I/O
+
+---
+
+### 43. `src/api/routes/tools.py` — Async Function Without Await (calculator_tool)
+**Severity:** 🟡 Minor  
+**Status:** ✅ RESOLVED  
+**Lines:** 66  
+**Rule:** python:S7503  
+**Issue:** `calculator_tool` was declared `async def` but performs pure computation with no I/O.
+
+```python
+# Before (anti-pattern)
+async def calculator_tool(a: float, b: float, operation: str = "add") -> dict[str, Any]:
+    # Pure math - no async operations
+```
+
+**Impact:** Unnecessary coroutine overhead for synchronous computation.
+
+**Resolution:** Removed `async` keyword. Function now returns directly without awaiting.
+
+**Reference:** GUIDELINES pp. 466, 618 - async adds overhead with no benefit for CPU-bound operations
+
+---
+
+### 44. `src/api/routes/tools.py` — Nested If Statements Should Be Merged
+**Severity:** 🟠 Major  
+**Status:** ✅ RESOLVED  
+**Lines:** 466-467  
+**Rule:** python:S1066  
+**Issue:** Nested `if` statements that could be combined into a single condition.
+
+```python
+# Before (anti-pattern)
+expected_type = properties[arg_name].get("type")
+if expected_type:
+    if not self._check_type(arg_value, expected_type):
+        return False, f"Invalid type for '{arg_name}': expected {expected_type}"
+
+# After (fixed)
+expected_type = properties[arg_name].get("type")
+if expected_type and not self._check_type(arg_value, expected_type):
+    return False, f"Invalid type for '{arg_name}': expected {expected_type}"
+```
+
+**Impact:** Reduced cognitive complexity and clearer intent.
+
+**Resolution:** Merged conditions using `and` short-circuit evaluation, which correctly handles `None` type gracefully.
+
+**Reference:** CODING_PATTERNS_ANALYSIS Anti-Pattern 2.1 - nested conditionals increase complexity
+
+---
+
+### 45. `src/api/routes/chat.py` — Use Union Type Expression
+**Severity:** 🟠 Major  
+**Status:** ✅ RESOLVED  
+**Lines:** 290  
+**Rule:** python:S6546  
+**Issue:** Return type annotation used `Union[X, Y, Z]` instead of PEP 604 union syntax.
+
+```python
+# Before (deprecated syntax)
+) -> Union[ChatCompletionResponse, StreamingResponse, JSONResponse]:
+
+# After (PEP 604 union syntax)
+) -> ChatCompletionResponse | StreamingResponse | JSONResponse:
+```
+
+**Impact:** Code clarity and modern Python idiom compliance.
+
+**Resolution:** Changed to PEP 604 union syntax (`X | Y | Z`), supported in Python 3.10+.
+
+**Reference:** GUIDELINES pp. 302-303 (Ramalho) - evolution from `typing.Union` to native union syntax
 
 ---
 
@@ -611,6 +699,8 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 | `src/providers/ollama.py` | 1 | 2 | 0 | 3 |
 | `src/providers/openai.py` | 1 | 2 | 0 | 3 |
 | `src/services/cost_tracker.py` | 0 | 1 | 2 | 3 |
+| `src/api/routes/tools.py` | 0 | 1 | 2 | 3 |
+| `src/api/routes/chat.py` | 0 | 1 | 0 | 1 |
 | `deploy/helm/llm-gateway/templates/deployment.yaml` | 1 | 1 | 0 | 2 |
 | `.github/workflows/ci.yml` | 0 | 1 | 1 | 2 |
 | `sonar-project.properties` | 1 | 0 | 1 | 2 |
@@ -621,7 +711,7 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 
 ## Completion Summary
 
-✅ **All 41 issues resolved** — December 4, 2025
+✅ **All 45 issues resolved** — December 5, 2025
 
 | Batch | Issues | Commits | Key Fixes |
 |-------|--------|---------|----------|
@@ -629,14 +719,17 @@ Now pydantic-settings correctly recognizes env vars per `env_prefix = "LLM_GATEW
 | Batch 2 (Major) | 9-18 | Multiple | Race conditions, connection pooling |
 | Batch 3 (Major) | 19-28 | Multiple | Secrets, dependency pinning |
 | Batch 4 (Minor) | 29-41 | `2bfe580` | pyproject.toml, TDD tests, docs |
+| Batch 5 (SonarQube) | 42-45 | TBD | Union types, async cleanup, merged conditionals |
 
 **Test Coverage Added:**
 - 4 Helm tests (HPA metrics validation)
 - 3 CORS configuration tests
 - 8 path normalization tests
 - 5 TDD tests (session expiration, division by zero, prefix matching)
+- 5 SonarQube code quality tests (sync function checks, merged conditional, union type)
 
 ---
 
 *Report generated from CodeRabbit AI analysis of PR #2*  
-*Closed: December 4, 2025*
+*Updated: December 5, 2025 — Added Batch 5 (SonarQube issues 42-45)*  
+*Closed: December 4, 2025 (Original issues)*

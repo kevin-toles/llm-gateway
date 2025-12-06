@@ -287,7 +287,7 @@ router = APIRouter(prefix="/v1/chat", tags=["Chat"])
 async def create_chat_completion(
     request: ChatCompletionRequest,
     chat_service: ChatService = Depends(get_chat_service),
-) -> Union[ChatCompletionResponse, StreamingResponse, JSONResponse]:
+) -> ChatCompletionResponse | StreamingResponse | JSONResponse:
     """
     Create a chat completion (streaming or non-streaming).
 
