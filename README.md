@@ -154,6 +154,58 @@ helm uninstall llm-gateway -n llm-services
 
 ## Development
 
+### Docker Compose Development Workflow (WBS 3.4.2.1)
+
+The project includes multiple Docker Compose configurations for different scenarios:
+
+#### Hot-Reload Development (Recommended)
+
+```bash
+# Start with hot-reload enabled (code changes reflected without rebuild)
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+# Verify hot-reload is working:
+# 1. Edit any file in src/
+# 2. Watch the logs - uvicorn will auto-reload
+# 3. Test with: curl http://localhost:8080/health
+```
+
+#### Selective Service Profiles (WBS 3.4.2.2)
+
+```bash
+# Full stack - all services (default)
+docker-compose --profile full-stack up -d
+
+# Gateway only - just gateway + Redis (no downstream services)
+docker-compose --profile gateway-only up -d
+
+# Integration tests - all services + test runner
+docker-compose --profile integration-test up
+
+# Check service status
+docker-compose ps
+
+# View logs
+docker-compose logs -f llm-gateway
+```
+
+| Profile | Services | Use Case |
+|---------|----------|----------|
+| `full-stack` | redis, semantic-search, ai-agents, llm-gateway | Full integration testing |
+| `gateway-only` | redis, llm-gateway-standalone | Gateway development without downstream services |
+| `integration-test` | All services + test-runner | Automated integration testing |
+
+#### Health Verification
+
+```bash
+# Check all services are healthy
+curl http://localhost:8080/health        # llm-gateway
+curl http://localhost:8080/health/ready  # llm-gateway readiness
+curl http://localhost:8081/health        # semantic-search
+curl http://localhost:8082/health        # ai-agents
+docker exec llm-gateway-redis redis-cli ping  # Redis
+```
+
 ### Running Tests
 
 ```bash

@@ -364,15 +364,31 @@ def client():
 
 @pytest.fixture
 def mock_redis_healthy():
-    """Mock Redis connection that returns healthy status."""
-    with patch("src.api.routes.health.HealthService.check_redis") as mock:
-        mock.return_value = True
-        yield mock
+    """Mock Redis connection that returns healthy status.
+
+    WBS 3.2.1.2: Updated to also mock semantic-search as healthy (default).
+    WBS 3.3.1.2: Updated to also mock ai-agents as healthy (default).
+    """
+    with patch("src.api.routes.health.HealthService.check_redis") as mock_redis, \
+         patch("src.api.routes.health.HealthService.check_semantic_search_health") as mock_semantic, \
+         patch("src.api.routes.health.HealthService.check_ai_agents_health") as mock_agents:
+        mock_redis.return_value = True
+        mock_semantic.return_value = True
+        mock_agents.return_value = True
+        yield mock_redis
 
 
 @pytest.fixture
 def mock_redis_unhealthy():
-    """Mock Redis connection that returns unhealthy status."""
-    with patch("src.api.routes.health.HealthService.check_redis") as mock:
-        mock.return_value = False
-        yield mock
+    """Mock Redis connection that returns unhealthy status.
+
+    WBS 3.2.1.2: Updated to also mock semantic-search (healthy by default).
+    WBS 3.3.1.2: Updated to also mock ai-agents (healthy by default).
+    """
+    with patch("src.api.routes.health.HealthService.check_redis") as mock_redis, \
+         patch("src.api.routes.health.HealthService.check_semantic_search_health") as mock_semantic, \
+         patch("src.api.routes.health.HealthService.check_ai_agents_health") as mock_agents:
+        mock_redis.return_value = False
+        mock_semantic.return_value = True  # semantic-search healthy, Redis down
+        mock_agents.return_value = True  # ai-agents healthy
+        yield mock_redis

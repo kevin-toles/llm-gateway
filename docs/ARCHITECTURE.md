@@ -261,6 +261,132 @@ services:
 
 ---
 
+## Service Discovery Patterns
+
+> **WBS 3.2.1.1.4**: Document service discovery patterns for microservice communication.
+
+The LLM Gateway uses **DNS-based service discovery** for communication with dependent services. This pattern is consistent across local development (Docker Compose) and production (Kubernetes).
+
+### Pattern: DNS Service Discovery
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Service Discovery Flow                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   Environment Variable                     DNS Resolution                    │
+│   ────────────────────                     ──────────────                    │
+│                                                                              │
+│   LLM_GATEWAY_SEMANTIC_SEARCH_URL          Docker Compose:                   │
+│   ────────────────────────────────         service name → container IP       │
+│   "http://semantic-search:8081"                                              │
+│                                            Kubernetes:                       │
+│                                            service.namespace.svc.cluster.local │
+│                                                                              │
+│   LLM_GATEWAY_REDIS_URL                    Both environments:                │
+│   ─────────────────────                    DNS resolves to service endpoint  │
+│   "redis://redis:6379"                                                       │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### URL Resolution by Environment
+
+| Environment | Service | URL Pattern | Resolution |
+|-------------|---------|-------------|------------|
+| Local (direct) | semantic-search | `http://localhost:8081` | Localhost binding |
+| Docker Compose | semantic-search | `http://semantic-search:8081` | Docker DNS |
+| Kubernetes | semantic-search | `http://semantic-search:8081` | K8s Service DNS |
+| Kubernetes (cross-namespace) | semantic-search | `http://semantic-search.default.svc.cluster.local:8081` | FQDN |
+
+### Configuration Hierarchy
+
+```python
+# Priority (highest to lowest):
+# 1. Environment variable: LLM_GATEWAY_SEMANTIC_SEARCH_URL
+# 2. ConfigMap/Secret mount (Kubernetes)
+# 3. Default in Settings class: "http://localhost:8081"
+```
+
+### Health Check Integration
+
+The gateway's `/health/ready` endpoint verifies connectivity to dependent services:
+
+```
+GET /health/ready
+
+Response (all healthy):
+{
+  "status": "ready",
+  "checks": {
+    "redis": true,
+    "semantic_search": true
+  }
+}
+
+Response (degraded - semantic-search down):
+{
+  "status": "degraded",
+  "checks": {
+    "redis": true,
+    "semantic_search": false
+  }
+}
+```
+
+### Graceful Degradation
+
+Following Newman's patterns (Building Microservices pp. 352-353):
+
+1. **Service Unavailable**: Return `503` with `"status": "not_ready"` if critical dependencies down
+2. **Degraded Mode**: Return `200` with `"status": "degraded"` if optional services unavailable
+3. **Circuit Breaker**: Fast-fail after repeated failures (implemented in `src/clients/circuit_breaker.py`)
+4. **Timeout Configuration**: 5-second health check timeout prevents cascading delays
+
+### Docker Compose Example
+
+```yaml
+services:
+  llm-gateway:
+    environment:
+      - LLM_GATEWAY_SEMANTIC_SEARCH_URL=http://semantic-search:8081
+      - LLM_GATEWAY_REDIS_URL=redis://redis:6379
+    depends_on:
+      semantic-search:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  semantic-search:
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+```
+
+### Kubernetes ConfigMap Example
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-gateway-config
+data:
+  LLM_GATEWAY_SEMANTIC_SEARCH_URL: "http://semantic-search:8081"
+  LLM_GATEWAY_REDIS_URL: "redis://redis-master:6379"
+```
+
+---
+
 ## Configuration
 
 ```python
@@ -273,7 +399,7 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379"
     
-    # Microservice URLs
+    # Microservice URLs (WBS 3.2.1.1: Service Discovery)
     semantic_search_url: str = "http://localhost:8081"
     
     # Providers

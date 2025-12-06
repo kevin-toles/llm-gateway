@@ -2,7 +2,8 @@
 # LLM Gateway - Continuous Integration Workflow
 # =============================================================================
 # Triggers: push to main/develop, pull requests to main
-# Jobs: lint, test, security, build (with helm-unittest)
+# Jobs: lint, test, integration-tests, security, build (with helm-unittest)
+# WBS 3.5.4.2: GitHub Actions Integration Tests
 # =============================================================================
 
 name: CI
@@ -57,10 +58,10 @@ jobs:
         run: mypy src/
 
   # ===========================================================================
-  # Test Job - Unit & Integration Tests
+  # Test Job - Unit Tests (Fast Feedback)
   # ===========================================================================
   test:
-    name: Test
+    name: Unit Tests
     runs-on: ubuntu-latest
     services:
       redis:
@@ -95,12 +96,7 @@ jobs:
             --cov=src \
             --cov-report=xml \
             --cov-report=term-missing \
-            --junitxml=test-results.xml
-
-      - name: Run integration tests
-        run: pytest tests/integration -v
-        env:
-          LLM_GATEWAY_REDIS_URL: redis://localhost:6379
+            --junitxml=unit-test-results.xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -109,12 +105,194 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
-      - name: Upload test results
+      - name: Upload unit test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results
-          path: test-results.xml
+          name: unit-test-results
+          path: unit-test-results.xml
+
+  # ===========================================================================
+  # OpenAPI Documentation Job (WBS 3.6.1.1.4)
+  # ===========================================================================
+  openapi:
+    name: OpenAPI Spec Export
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      # WBS 3.6.1.1.2: Export OpenAPI spec
+      - name: Export OpenAPI specification
+        run: python scripts/export_openapi.py
+
+      # WBS 3.6.1.1.4: Upload spec as artifact
+      - name: Upload OpenAPI specification
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: |
+            docs/openapi.json
+            docs/openapi.yaml
+          retention-days: 90
+
+      # Check for spec changes (for documentation tracking)
+      - name: Check for OpenAPI spec changes
+        run: |
+          if git diff --quiet docs/openapi.json docs/openapi.yaml 2>/dev/null; then
+            echo "✅ OpenAPI spec unchanged"
+          else
+            echo "⚠️ OpenAPI spec has changed - consider committing updated docs"
+            git diff docs/openapi.json docs/openapi.yaml || true
+          fi
+
+  # ===========================================================================
+  # Contract Tests Job - OpenAPI Contract Validation (WBS 3.6.1.2)
+  # ===========================================================================
+  contract-tests:
+    name: Contract Tests
+    needs: [openapi]  # Run after OpenAPI export
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      # WBS 3.6.1.2.3: Run contract tests
+      - name: Run contract tests
+        run: |
+          pytest tests/contract -v \
+            --junitxml=contract-test-results.xml \
+            -m contract
+
+      - name: Upload contract test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contract-test-results
+          path: contract-test-results.xml
+          retention-days: 30
+
+  # ===========================================================================
+  # Integration Tests Job - Docker Compose Full Stack (WBS 3.5.4.2)
+  # ===========================================================================
+  integration-tests:
+    name: Integration Tests
+    needs: [test]  # Run after unit tests pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 20  # Prevent hanging tests
+
+    steps:
+      # WBS 3.5.4.2.1: Checkout code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # WBS 3.5.4.2.2: Set up Docker Buildx for multi-platform support
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # WBS 3.5.4.2.3: Start services with docker-compose
+      - name: Start services
+        working-directory: deploy/docker
+        run: |
+          echo "=== Building and starting services ==="
+          docker compose -f docker-compose.test.yml up -d --build \
+            redis-test \
+            llm-gateway-test
+          
+          echo "=== Services started ==="
+          docker compose -f docker-compose.test.yml ps
+
+      # WBS 3.5.4.2.4: Wait for services to be healthy
+      - name: Wait for services to be healthy
+        working-directory: deploy/docker
+        run: |
+          echo "=== Waiting for Redis to be healthy ==="
+          timeout 60 sh -c 'until docker compose -f docker-compose.test.yml exec -T redis-test redis-cli ping 2>/dev/null; do sleep 2; done'
+          
+          echo "=== Waiting for Gateway to be healthy ==="
+          timeout 120 sh -c 'until docker compose -f docker-compose.test.yml exec -T llm-gateway-test curl -sf http://localhost:8080/health 2>/dev/null; do sleep 3; done'
+          
+          echo "=== All services healthy ==="
+          docker compose -f docker-compose.test.yml ps
+
+      # WBS 3.5.4.2.5: Run integration tests
+      - name: Run integration tests
+        working-directory: deploy/docker
+        run: |
+          echo "=== Running integration tests ==="
+          docker compose -f docker-compose.test.yml run --rm \
+            -e CI=true \
+            tests \
+            pytest tests/integration -v --tb=short \
+              --junitxml=/app/test-results/integration-junit.xml \
+              --cov=src \
+              --cov-report=xml:/app/test-results/coverage.xml \
+              --cov-report=term-missing \
+              -x  # Stop on first failure for faster feedback
+
+      # WBS 3.5.4.2.6: Collect test results
+      - name: Collect test results
+        if: always()
+        working-directory: deploy/docker
+        run: |
+          echo "=== Copying test results ==="
+          mkdir -p ../../test-results
+          docker compose -f docker-compose.test.yml cp \
+            tests:/app/test-results/. ../../test-results/ 2>/dev/null || true
+          
+          ls -la ../../test-results/ || echo "No test results found"
+
+      # WBS 3.5.4.2.6: Upload test results artifact
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: test-results/
+          retention-days: 30
+
+      # WBS 3.5.4.2.7: Tear down services
+      - name: Tear down services
+        if: always()
+        working-directory: deploy/docker
+        run: |
+          echo "=== Tearing down services ==="
+          docker compose -f docker-compose.test.yml logs > ../../docker-logs.txt 2>&1 || true
+          docker compose -f docker-compose.test.yml down -v --remove-orphans
+          echo "=== Cleanup complete ==="
+
+      # Upload Docker logs for debugging
+      - name: Upload Docker logs
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: docker-logs
+          path: docker-logs.txt
+          retention-days: 7
 
   # ===========================================================================
   # SonarQube Job - Code Quality & Security Analysis
@@ -132,7 +310,7 @@ jobs:
       - name: Download coverage artifact
         uses: actions/download-artifact@v4
         with:
-          name: test-results
+          name: unit-test-results
           path: .
         continue-on-error: true  # Don't fail if artifact doesn't exist
 
@@ -251,7 +429,7 @@ jobs:
   # ===========================================================================
   build:
     name: Build & Push
-    needs: [lint, test, security, sonarqube, helm-lint]
+    needs: [lint, test, integration-tests, contract-tests, openapi, security, sonarqube, helm-lint]
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -13,10 +13,15 @@ Anti-Patterns Avoided:
 - ANTI_PATTERN_ANALYSIS §1.1: Optional types with explicit None
 - ANTI_PATTERN_ANALYSIS §3.1: No bare except clauses
 - ANTI_PATTERN_ANALYSIS §4.1: Cognitive complexity < 15 per function
+
+WBS 3.2.2: Search Tool Integration
+- 3.2.2.1: search_corpus tool registered and wired to semantic-search-service
+- 3.2.2.2: get_chunk tool registered and wired to semantic-search-service
 """
 
 import logging
-from typing import Optional, Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -26,6 +31,14 @@ from src.models.tools import (
     ToolExecuteResponse,
 )
 
+# WBS 3.2.2: Import semantic search tool functions (not definitions)
+from src.tools.builtin.chunk_retrieval import get_chunk
+from src.tools.builtin.semantic_search import search_corpus
+
+# WBS 3.3.2: Import AI agent tool functions
+from src.tools.builtin.code_review import review_code
+from src.tools.builtin.architecture import analyze_architecture
+from src.tools.builtin.doc_generate import generate_documentation
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -84,6 +97,109 @@ async def calculator_tool(a: float, b: float, operation: str = "add") -> dict[st
 
 
 # =============================================================================
+# WBS 3.2.2: Semantic Search Tool Wrappers
+# Pattern: Adapter pattern - adapt dict-based tools to keyword args
+# =============================================================================
+
+
+async def search_corpus_wrapper(
+    query: str,
+    top_k: int = 10,
+    collection: str = "default",
+) -> dict[str, Any]:
+    """
+    Wrapper for search_corpus tool to adapt to keyword args pattern.
+
+    WBS 3.2.2.1.3: Call search_corpus tool through gateway.
+
+    Args:
+        query: The search query.
+        top_k: Maximum number of results (default: 10).
+        collection: Collection to search (default: 'default').
+
+    Returns:
+        Search results from semantic-search-service.
+    """
+    args = {"query": query, "top_k": top_k, "collection": collection}
+    return await search_corpus(args)
+
+
+async def get_chunk_wrapper(chunk_id: str) -> dict[str, Any]:
+    """
+    Wrapper for get_chunk tool to adapt to keyword args pattern.
+
+    WBS 3.2.2.2.1: Call get_chunk tool through gateway.
+
+    Args:
+        chunk_id: The unique identifier of the chunk.
+
+    Returns:
+        Chunk data from semantic-search-service.
+    """
+    args = {"chunk_id": chunk_id}
+    return await get_chunk(args)
+
+
+# =============================================================================
+# WBS 3.3.2: AI Agent Tool Wrappers
+# Pattern: Adapter pattern - adapt dict-based tools to keyword args
+# =============================================================================
+
+
+async def review_code_wrapper(code: str, language: str = "python") -> dict[str, Any]:
+    """
+    Wrapper for review_code tool to adapt to keyword args pattern.
+
+    WBS 3.3.2.1.3: Call code review tool through gateway.
+
+    Args:
+        code: The source code to review.
+        language: Programming language (default: 'python').
+
+    Returns:
+        Code review findings from ai-agents service.
+    """
+    args = {"code": code, "language": language}
+    return await review_code(args)
+
+
+async def analyze_architecture_wrapper(code: str, context: str = "") -> dict[str, Any]:
+    """
+    Wrapper for analyze_architecture tool to adapt to keyword args pattern.
+
+    WBS 3.3.2.2.3: Call architecture analysis tool through gateway.
+
+    Args:
+        code: The source code to analyze.
+        context: Additional context about the codebase.
+
+    Returns:
+        Architecture analysis from ai-agents service.
+    """
+    args = {"code": code, "context": context}
+    return await analyze_architecture(args)
+
+
+async def generate_documentation_wrapper(
+    code: str, format: str = "markdown"  # noqa: A002 - format shadows builtin, but matches API
+) -> dict[str, Any]:
+    """
+    Wrapper for generate_documentation tool to adapt to keyword args pattern.
+
+    WBS 3.3.2.3.3: Call doc generation tool through gateway.
+
+    Args:
+        code: The source code to document.
+        format: Output format (default: 'markdown').
+
+    Returns:
+        Generated documentation from ai-agents service.
+    """
+    args = {"code": code, "format": format}
+    return await generate_documentation(args)
+
+
+# =============================================================================
 # Tool Registry - WBS 2.2.4.3.2
 # Pattern: Service registry (GUIDELINES p. 1544)
 # =============================================================================
@@ -130,6 +246,141 @@ BUILTIN_TOOLS: dict[str, tuple[ToolDefinition, ToolFunction]] = {
         ),
         calculator_tool,
     ),
+    # =========================================================================
+    # WBS 3.2.2.1: Semantic Search Tool
+    # Pattern: Service proxy (proxies to semantic-search-service)
+    # =========================================================================
+    "search_corpus": (
+        ToolDefinition(
+            name="search_corpus",
+            description="Search the document corpus for relevant content using semantic similarity. "
+            "Returns the most relevant chunks matching the query.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query to find relevant documents.",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return (default: 10).",
+                        "default": 10,
+                    },
+                    "collection": {
+                        "type": "string",
+                        "description": "The document collection to search (default: 'default').",
+                        "default": "default",
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        search_corpus_wrapper,
+    ),
+    # =========================================================================
+    # WBS 3.2.2.2: Chunk Retrieval Tool
+    # Pattern: Service proxy (proxies to semantic-search-service)
+    # =========================================================================
+    "get_chunk": (
+        ToolDefinition(
+            name="get_chunk",
+            description="Retrieve a specific document chunk by its ID. "
+            "Returns the chunk content and associated metadata.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "chunk_id": {
+                        "type": "string",
+                        "description": "The unique identifier of the chunk to retrieve.",
+                    },
+                },
+                "required": ["chunk_id"],
+            },
+        ),
+        get_chunk_wrapper,
+    ),
+    # =========================================================================
+    # WBS 3.3.2.1: Code Review Tool
+    # Pattern: Service proxy (proxies to ai-agents microservice)
+    # =========================================================================
+    "review_code": (
+        ToolDefinition(
+            name="review_code",
+            description="Perform code review on source code. "
+            "Returns findings including issues, suggestions, and best practice violations.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "The source code to review.",
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Programming language of the code (default: 'python').",
+                        "default": "python",
+                    },
+                },
+                "required": ["code"],
+            },
+        ),
+        review_code_wrapper,
+    ),
+    # =========================================================================
+    # WBS 3.3.2.2: Architecture Analysis Tool
+    # Pattern: Service proxy (proxies to ai-agents microservice)
+    # =========================================================================
+    "analyze_architecture": (
+        ToolDefinition(
+            name="analyze_architecture",
+            description="Analyze code architecture and design patterns. "
+            "Returns architectural insights, pattern usage, and recommendations.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "The source code to analyze.",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Additional context about the codebase.",
+                        "default": "",
+                    },
+                },
+                "required": ["code"],
+            },
+        ),
+        analyze_architecture_wrapper,
+    ),
+    # =========================================================================
+    # WBS 3.3.2.3: Documentation Generation Tool
+    # Pattern: Service proxy (proxies to ai-agents microservice)
+    # =========================================================================
+    "generate_documentation": (
+        ToolDefinition(
+            name="generate_documentation",
+            description="Generate documentation for source code. "
+            "Returns formatted documentation including descriptions, parameters, and examples.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "The source code to document.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Output format for documentation (e.g., 'markdown', 'rst', 'docstring').",
+                        "default": "markdown",
+                    },
+                },
+                "required": ["code"],
+            },
+        ),
+        generate_documentation_wrapper,
+    ),
 }
 
 
@@ -157,7 +408,7 @@ class ToolExecutorService:
         """Initialize tool executor with builtin tools."""
         self._tools: dict[str, tuple[ToolDefinition, ToolFunction]] = dict(BUILTIN_TOOLS)
 
-    def get_tool(self, name: str) -> Optional[tuple[ToolDefinition, ToolFunction]]:
+    def get_tool(self, name: str) -> tuple[ToolDefinition, ToolFunction] | None:
         """
         Get tool definition and function by name.
 
@@ -182,7 +433,7 @@ class ToolExecutorService:
 
     def validate_arguments(
         self, definition: ToolDefinition, arguments: dict[str, Any]
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """
         Validate arguments against tool schema.
 
@@ -302,7 +553,7 @@ class ToolExecutorService:
 # =============================================================================
 
 # Global service instance (can be overridden in tests)
-_tool_executor: Optional[ToolExecutorService] = None
+_tool_executor: ToolExecutorService | None = None
 
 
 def get_tool_executor() -> ToolExecutorService:

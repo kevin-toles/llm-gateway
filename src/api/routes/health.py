@@ -14,11 +14,10 @@ Anti-Patterns Avoided:
 - ANTI_PATTERN_ANALYSIS §5.1: No unused parameters
 """
 
-import os
 import logging
-from typing import Optional
+import os
 
-from fastapi import APIRouter, Response, Depends
+from fastapi import APIRouter, Depends, Response
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
@@ -51,7 +50,14 @@ class ReadinessResponse(BaseModel):
 # =============================================================================
 # Health Service - Repository Pattern (Architecture Patterns p. 157)
 # WBS 2.2.1.2.9: Extract dependency checks to separate functions
+# WBS 3.2.1.2: Semantic Search Health Check Integration
 # =============================================================================
+
+# Default semantic search URL from config
+SEMANTIC_SEARCH_URL = os.getenv("LLM_GATEWAY_SEMANTIC_SEARCH_URL", "http://localhost:8081")
+
+# Default ai-agents URL from config (WBS 3.3.1.1)
+AI_AGENTS_URL = os.getenv("LLM_GATEWAY_AI_AGENTS_URL", "http://localhost:8082")
 
 
 class HealthService:
@@ -62,11 +68,32 @@ class HealthService:
     Reference: Architecture Patterns with Python p. 157
 
     This class enables dependency injection and test doubles (FakeRepository pattern).
+    
+    WBS 3.2.1.2: Added semantic-search health checking.
+    WBS 3.3.1.2: Added ai-agents health checking (optional service).
+    Reference: GUIDELINES pp. 2309-2321 - Newman's graceful degradation patterns.
+    Reference: ARCHITECTURE.md line 342 - optional services return degraded status.
     """
 
-    def __init__(self, redis_url: Optional[str] = None):
-        """Initialize health service with optional Redis URL override."""
+    def __init__(
+        self,
+        redis_url: str | None = None,
+        semantic_search_url: str | None = None,
+        ai_agents_url: str | None = None,
+    ):
+        """
+        Initialize health service with optional URL overrides.
+        
+        Args:
+            redis_url: Redis connection URL (defaults to env var)
+            semantic_search_url: Semantic search service URL (defaults to env var)
+            ai_agents_url: AI agents service URL (defaults to env var)
+            
+        WBS 3.3.1.1.5: Gateway resolves ai-agents URL via dependency injection.
+        """
         self._redis_url = redis_url or REDIS_URL
+        self._semantic_search_url = semantic_search_url or SEMANTIC_SEARCH_URL
+        self._ai_agents_url = ai_agents_url or AI_AGENTS_URL
 
     async def check_redis(self) -> bool:
         """
@@ -121,6 +148,105 @@ class HealthService:
             return True
         except Exception as e:
             logger.warning(f"Redis health check failed: {e}")
+            return False
+
+    async def check_semantic_search_health(self) -> bool:
+        """
+        Check semantic-search service connectivity asynchronously.
+
+        WBS 3.2.1.2.2: Implement check_semantic_search_health() function.
+        WBS 3.2.1.2.3: Call semantic-search /health endpoint.
+
+        Returns:
+            bool: True if semantic-search is reachable, False otherwise
+
+        Pattern: Graceful degradation (Newman pp. 352-353)
+        Pattern: Circuit breaker fast-fail (Newman pp. 357-358)
+        Anti-pattern avoided: §3.1 Bare Except - exceptions logged with context
+        Anti-pattern avoided: §67 Connection pooling - uses context manager
+        """
+        if not self._semantic_search_url:
+            # Semantic search not configured, consider it healthy (optional dependency)
+            logger.debug("Semantic search not configured, skipping health check")
+            return True
+
+        try:
+            import httpx
+
+            # Use async context manager for proper connection pooling
+            # Anti-pattern §67: Don't create new client per request
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{self._semantic_search_url}/health")
+
+                if response.status_code == 200:
+                    return True
+                else:
+                    logger.warning(
+                        f"Semantic search health check returned status {response.status_code}"
+                    )
+                    return False
+
+        except httpx.ConnectError as e:
+            # Anti-pattern §3.1: Log with context
+            logger.warning(f"Semantic search connection failed: {e}")
+            return False
+        except httpx.TimeoutException as e:
+            # Pattern: Timeout logging (Newman p. 356)
+            logger.warning(f"Semantic search health check timeout: {e}")
+            return False
+        except Exception as e:
+            # Anti-pattern §3.1: Log exception, don't silently fail
+            logger.warning(f"Semantic search health check failed: {e}")
+            return False
+
+    async def check_ai_agents_health(self) -> bool:
+        """
+        Check ai-agents service connectivity asynchronously.
+
+        WBS 3.3.1.2.2: Implement check_ai_agents_health() function.
+        WBS 3.3.1.2.3: Report status but don't fail readiness (agents optional).
+
+        Returns:
+            bool: True if ai-agents is reachable, False otherwise
+
+        Pattern: Graceful degradation (Newman pp. 352-353)
+        Reference: ARCHITECTURE.md line 342 - optional services return degraded
+        Reference: llm-document-enhancer/docs/ARCHITECTURE.md line 242 - ai-agents optional
+        Anti-pattern avoided: §3.1 Bare Except - exceptions logged with context
+        Anti-pattern avoided: §67 Connection pooling - uses context manager
+        """
+        if not self._ai_agents_url:
+            # AI agents not configured, consider it healthy (optional dependency)
+            logger.debug("AI agents not configured, skipping health check")
+            return True
+
+        try:
+            import httpx
+
+            # Use async context manager for proper connection pooling
+            # Anti-pattern §67: Don't create new client per request
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(f"{self._ai_agents_url}/health")
+
+                if response.status_code == 200:
+                    return True
+                else:
+                    logger.warning(
+                        f"AI agents health check returned status {response.status_code}"
+                    )
+                    return False
+
+        except httpx.ConnectError as e:
+            # Anti-pattern §3.1: Log with context
+            logger.warning(f"AI agents connection failed: {e}")
+            return False
+        except httpx.TimeoutException as e:
+            # Pattern: Timeout logging (Newman p. 356)
+            logger.warning(f"AI agents health check timeout: {e}")
+            return False
+        except Exception as e:
+            # Anti-pattern §3.1: Log exception, don't silently fail
+            logger.warning(f"AI agents health check failed: {e}")
             return False
 
 
@@ -311,8 +437,8 @@ class MetricsService:
 # =============================================================================
 
 # Global service instances (can be overridden in tests)
-_health_service: Optional[HealthService] = None
-_metrics_service: Optional[MetricsService] = None
+_health_service: HealthService | None = None
+_metrics_service: MetricsService | None = None
 
 
 def get_health_service() -> HealthService:
@@ -364,7 +490,7 @@ async def health_check() -> HealthResponse:
 
 
 # =============================================================================
-# Readiness Endpoint - WBS 2.2.1.2
+# Readiness Endpoint - WBS 2.2.1.2, WBS 3.2.1.2
 # =============================================================================
 
 
@@ -378,8 +504,10 @@ async def readiness_check(
 
     WBS 2.2.1.2.1: Implement GET /health/ready endpoint
     WBS 2.2.1.2.2: Check Redis connectivity
+    WBS 3.2.1.2.1: Add semantic-search health check to gateway readiness
     WBS 2.2.1.2.4: Return {"status": "ready"} if all checks pass
     WBS 2.2.1.2.5: Return 503 if dependencies unavailable
+    WBS 3.2.1.2.4: Report degraded status if semantic-search unavailable
 
     Args:
         response: FastAPI response object for setting status code
@@ -387,17 +515,44 @@ async def readiness_check(
 
     Returns:
         ReadinessResponse: Readiness status with dependency checks
+        
+    Pattern: Graceful degradation (Newman pp. 352-353)
     """
+    # Check all dependencies concurrently
     redis_healthy = await health_service.check_redis()
+    semantic_search_healthy = await health_service.check_semantic_search_health()
+    ai_agents_healthy = await health_service.check_ai_agents_health()
 
-    checks = {"redis": redis_healthy}
+    checks = {
+        "redis": redis_healthy,
+        "semantic_search": semantic_search_healthy,
+        "ai_agents": ai_agents_healthy,
+    }
+    
+    # WBS 3.3.1.2.3: ai_agents is optional - don't fail readiness if it's down
+    # Only critical services (redis, semantic_search) affect readiness
+    # Reference: ARCHITECTURE.md line 342 - optional services return degraded
+    critical_checks = {
+        "redis": redis_healthy,
+        "semantic_search": semantic_search_healthy,
+    }
+    critical_healthy = all(critical_checks.values())
     all_healthy = all(checks.values())
-
-    if not all_healthy:
+    
+    # Determine status:
+    # - "ready" if all services healthy
+    # - "degraded" if critical services healthy but optional services down
+    # - "not_ready" if critical services down
+    if critical_healthy and not all_healthy:
+        status = "degraded"
+    elif critical_healthy:
+        status = "ready"
+    else:
+        status = "not_ready"
         response.status_code = 503
 
     return ReadinessResponse(
-        status="ready" if all_healthy else "not_ready",
+        status=status,
         checks=checks,
     )
 
