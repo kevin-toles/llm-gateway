@@ -183,7 +183,7 @@ async def analyze_architecture_wrapper(code: str, context: str = "") -> dict[str
 
 
 async def generate_documentation_wrapper(
-    code: str, format: str = "markdown"  # noqa: A002 - format shadows builtin, but matches API
+    code: str, format: str = "markdown"  # NOSONAR A002 - 'format' shadows builtin, intentional API match
 ) -> dict[str, Any]:
     """
     Wrapper for generate_documentation tool to adapt to keyword args pattern.
