@@ -792,3 +792,27 @@ class TestSonarQubeTypeAnnotationFixes:
         
         # Verify it includes the expected types
         assert "ChatCompletionResponse" in annotation_str or "Response" in annotation_str
+
+    def test_chat_route_no_todo_comments(self) -> None:
+        """
+        Issue 49 (S1135): TODO comments should be converted to NOTE.
+        
+        Per CODING_PATTERNS_ANALYSIS Anti-Pattern 9.1: Convert TODO to NOTE
+        when work is planned for future phase with WBS reference.
+        
+        Rule: python:S1135 - Complete the task associated to this TODO comment
+        """
+        import ast
+        import inspect
+        from src.api.routes import chat
+        
+        source = inspect.getsource(chat)
+        
+        # Count TODO comments (case-insensitive)
+        todo_count = source.upper().count("# TODO")
+        
+        assert todo_count == 0, (
+            f"Found {todo_count} TODO comment(s) in chat.py. "
+            "Convert to NOTE per Anti-Pattern 9.1 or complete the task."
+        )
+

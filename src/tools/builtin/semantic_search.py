@@ -184,7 +184,7 @@ async def search_corpus(args: dict[str, Any]) -> dict[str, Any]:
     except CircuitOpenError as e:
         logger.warning(f"Circuit breaker open for semantic-search-service: {e}")
         raise SearchServiceError(
-            f"Semantic search service circuit open - failing fast"
+            "Semantic search service circuit open - failing fast"
         ) from e
 
     except httpx.TimeoutException as e:

@@ -804,3 +804,51 @@ class TestMetricsExports:
         from src.observability import record_cache_operation
 
         assert record_cache_operation is not None
+
+
+# =============================================================================
+# SonarQube Code Quality Fixes - Batch 6 (Issue 50)
+# =============================================================================
+
+
+class TestSonarQubeCodeQualityFixesBatch6:
+    """
+    TDD RED Phase: Tests for SonarQube code smell fixes.
+    
+    Issue 50: metrics.py:54 - Duplicated literal '/{id}' appears 4 times
+    Rule: python:S1192 - Define a constant instead of duplicating this literal
+    
+    Reference: CODING_PATTERNS_ANALYSIS.md - NEW pattern for duplicated literals
+    """
+
+    def test_path_id_placeholder_constant_exists(self) -> None:
+        """
+        Issue 50 (S1192): A constant should be defined for '/{id}' placeholder.
+        
+        The literal '/{id}' appears 4 times in _PATH_PATTERNS. Per DRY principle
+        and SonarQube S1192, this should be extracted to a named constant.
+        """
+        from src.observability import metrics
+        
+        # Check that _PATH_ID_PLACEHOLDER constant exists
+        assert hasattr(metrics, "_PATH_ID_PLACEHOLDER"), (
+            "Expected _PATH_ID_PLACEHOLDER constant to be defined in metrics.py"
+        )
+        assert metrics._PATH_ID_PLACEHOLDER == "/{id}"
+
+    def test_path_patterns_use_constant(self) -> None:
+        """
+        Issue 50 (S1192): _PATH_PATTERNS should reference the constant.
+        
+        Verifies that the constant is actually used in the patterns,
+        not hardcoded literal strings.
+        """
+        from src.observability import metrics
+        
+        # All patterns should use the same placeholder value
+        for pattern, replacement in metrics._PATH_PATTERNS:
+            if "{id}" in replacement:
+                assert replacement == metrics._PATH_ID_PLACEHOLDER, (
+                    f"Pattern replacement '{replacement}' should use _PATH_ID_PLACEHOLDER"
+                )
+

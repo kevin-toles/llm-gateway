@@ -395,8 +395,10 @@ class ChatService:
         # Best approach: Save only messages AFTER the first request message.
         # Find where request.messages[0] starts in the messages list.
         
-        original_msg_count = len(request.messages)
-        total_msg_count = len(messages)
+        # NOTE: These counts document the message structure for debugging.
+        # Prefixed with underscore per Anti-Pattern 4.3 (intentionally unused).
+        _original_msg_count = len(request.messages)  # noqa: F841
+        _total_msg_count = len(messages)  # noqa: F841
         
         # New messages start after history. We know the structure is:
         # [history...] + [request.messages...] + [tool_calls/results...]

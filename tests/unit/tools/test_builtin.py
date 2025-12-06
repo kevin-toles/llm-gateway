@@ -444,3 +444,84 @@ class TestBuiltinToolsImports:
         from src.tools.builtin import get_chunk
 
         assert callable(get_chunk)
+
+
+# =============================================================================
+# SonarQube Code Quality Fixes - Batch 6 (Issues 47-48)
+# =============================================================================
+
+
+class TestSonarQubeCodeQualityFixesBatch6:
+    """
+    TDD RED Phase: Tests for SonarQube code smell fixes.
+    
+    Issue 47: chunk_retrieval.py:165 - f-string without placeholders
+    Issue 48: semantic_search.py:187 - f-string without placeholders
+    Rule: python:S3457 - Add replacement fields or use a normal string
+    
+    Reference: CODING_PATTERNS_ANALYSIS.md - NEW pattern for empty f-strings
+    """
+
+    def test_chunk_retrieval_error_messages_no_empty_fstrings(self) -> None:
+        """
+        Issue 47 (S3457): ChunkServiceError messages should not use empty f-strings.
+        
+        An f-string without any replacement fields should be a regular string.
+        This test inspects the source code to verify no f"..." without {}.
+        """
+        import ast
+        import inspect
+        from src.tools.builtin import chunk_retrieval
+        
+        source = inspect.getsource(chunk_retrieval)
+        tree = ast.parse(source)
+        
+        # Find all f-strings (JoinedStr nodes)
+        fstrings_without_placeholders = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.JoinedStr):
+                # An f-string with only Constant values has no placeholders
+                has_placeholder = any(
+                    isinstance(value, (ast.FormattedValue,))
+                    for value in node.values
+                )
+                if not has_placeholder:
+                    # Extract the line number for error message
+                    fstrings_without_placeholders.append(node.lineno)
+        
+        assert len(fstrings_without_placeholders) == 0, (
+            f"Found f-strings without placeholders at lines: {fstrings_without_placeholders}. "
+            "Remove 'f' prefix from strings that don't use interpolation."
+        )
+
+    def test_semantic_search_error_messages_no_empty_fstrings(self) -> None:
+        """
+        Issue 48 (S3457): SearchServiceError messages should not use empty f-strings.
+        
+        An f-string without any replacement fields should be a regular string.
+        This test inspects the source code to verify no f"..." without {}.
+        """
+        import ast
+        import inspect
+        from src.tools.builtin import semantic_search
+        
+        source = inspect.getsource(semantic_search)
+        tree = ast.parse(source)
+        
+        # Find all f-strings (JoinedStr nodes)
+        fstrings_without_placeholders = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.JoinedStr):
+                # An f-string with only Constant values has no placeholders
+                has_placeholder = any(
+                    isinstance(value, (ast.FormattedValue,))
+                    for value in node.values
+                )
+                if not has_placeholder:
+                    fstrings_without_placeholders.append(node.lineno)
+        
+        assert len(fstrings_without_placeholders) == 0, (
+            f"Found f-strings without placeholders at lines: {fstrings_without_placeholders}. "
+            "Remove 'f' prefix from strings that don't use interpolation."
+        )
+

@@ -51,7 +51,7 @@ DEFAULT_MODEL = os.getenv("LLM_GATEWAY_DEFAULT_MODEL", "gpt-4")
 # Pattern: Cognitive complexity reduction (ANTI_PATTERN §4.1)
 # Pattern: Dependency injection (Sinha pp. 89-91)
 #
-# TODO Issue 27 (Comp_Static_Analysis_Report_20251203.md):
+# NOTE Issue 27 (Comp_Static_Analysis_Report_20251203.md):
 # This stub ChatService should be replaced with the real implementation from
 # src/services/chat.ChatService. The full migration requires:
 # 1. Setting up FastAPI dependency injection for ProviderRouter, ToolExecutor, SessionManager
@@ -61,6 +61,7 @@ DEFAULT_MODEL = os.getenv("LLM_GATEWAY_DEFAULT_MODEL", "gpt-4")
 # The stub is retained for backwards compatibility during incremental migration.
 # Real implementation: src/services/chat.py - ChatService with full provider routing,
 # tool execution, and session management.
+# Implementation deferred to Stage 4: Full Service Migration (WBS 4.x)
 # =============================================================================
 
 

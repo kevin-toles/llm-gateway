@@ -162,7 +162,7 @@ async def get_chunk(args: dict[str, Any]) -> dict[str, Any]:
     except CircuitOpenError as e:
         logger.warning(f"Circuit breaker open for semantic-search-service: {e}")
         raise ChunkServiceError(
-            f"Chunk service circuit open - failing fast"
+            "Chunk service circuit open - failing fast"
         ) from e
 
     except httpx.TimeoutException as e:

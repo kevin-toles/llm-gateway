@@ -833,3 +833,55 @@ class TestChatServiceImportable:
         from src.services.chat import ChatServiceError
 
         assert issubclass(ChatServiceError, Exception)
+
+
+# =============================================================================
+# SonarQube Code Quality Fixes - Batch 6 (Issues 51-52)
+# =============================================================================
+
+
+class TestSonarQubeCodeQualityFixesBatch6:
+    """
+    TDD RED Phase: Tests for SonarQube code smell fixes.
+    
+    Issue 51-52: services/chat.py:398-399 - Unused local variables
+    Rule: python:S1481 - Remove unused local variables
+    
+    Reference: CODING_PATTERNS_ANALYSIS.md Category 4 Anti-Pattern 4.3
+    Pattern: Prefix unused but documented variables with underscore
+    """
+
+    def test_chat_service_no_unused_variables(self) -> None:
+        """
+        Issue 51-52 (S1481): Chat service should not have unused local variables.
+        
+        Variables original_msg_count and total_msg_count are assigned but never used.
+        They should be removed or prefixed with underscore if kept for documentation.
+        
+        Per CODING_PATTERNS_ANALYSIS Anti-Pattern 4.3: Use underscore prefix for
+        intentionally unused variables that serve as documentation.
+        """
+        import ast
+        import inspect
+        from src.services import chat
+        
+        source = inspect.getsource(chat)
+        tree = ast.parse(source)
+        
+        # Check that original_msg_count and total_msg_count are either:
+        # 1. Removed entirely
+        # 2. Prefixed with underscore (_original_msg_count, _total_msg_count)
+        problematic_vars = []
+        
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        if target.id in ("original_msg_count", "total_msg_count"):
+                            problematic_vars.append(target.id)
+        
+        assert len(problematic_vars) == 0, (
+            f"Found unused variables without underscore prefix: {problematic_vars}. "
+            "Either remove them or prefix with underscore per Anti-Pattern 4.3."
+        )
+

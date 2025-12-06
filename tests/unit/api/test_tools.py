@@ -543,3 +543,66 @@ class TestSonarQubeCodeQualityFixes:
         valid, error = executor.validate_arguments(definition, {"value": 123})
         assert valid is True
         assert error is None
+
+
+# =============================================================================
+# SonarQube Code Quality Fixes - Batch 6 (Issue 46)
+# =============================================================================
+
+
+class TestSonarQubeCodeQualityFixesBatch6:
+    """
+    TDD RED Phase: Tests for SonarQube code smell fixes - Batch 6.
+    
+    Issue 46: tools.py:186 - Fix the syntax of this issue suppression comment
+    Rule: python:S1134 - Suppression comments must use correct syntax
+    
+    Reference: CODING_PATTERNS_ANALYSIS.md Anti-Pattern 4.2
+    Pattern: Use standard # noqa: CODE or # type: ignore[code] syntax
+    """
+
+    def test_tools_noqa_comments_have_valid_syntax(self) -> None:
+        """
+        Issue 46 (S1134): All noqa comments should have valid syntax.
+        
+        SonarQube expects specific suppression comment formats.
+        Ruff/flake8 noqa comments are not recognized by SonarQube.
+        
+        Valid formats:
+        - # noqa: A002  (Ruff/flake8 - valid for those tools)
+        - # NOSONAR  (SonarQube suppression)
+        - # type: ignore[error-code]  (mypy)
+        
+        The issue is that SonarQube is flagging line 186 because it sees
+        a suppression comment it doesn't understand. We need to ensure
+        SonarQube doesn't try to parse Ruff comments as SonarQube comments.
+        """
+        import re
+        import inspect
+        from src.api.routes import tools
+        
+        source = inspect.getsource(tools)
+        
+        # Check for malformed suppression comments that SonarQube might misinterpret
+        # Valid: # noqa: CODE - explanation
+        # Invalid: # noqa - explanation (without colon and code)
+        
+        lines = source.split('\n')
+        invalid_noqa_lines = []
+        
+        for i, line in enumerate(lines, 1):
+            # Check for noqa without code after it (which is invalid)
+            if re.search(r'#\s*noqa\s*$', line, re.IGNORECASE):
+                invalid_noqa_lines.append(i)
+            # Check for noqa followed by text but no colon
+            elif re.search(r'#\s*noqa\s+[^:]', line, re.IGNORECASE):
+                # This could be valid like "# noqa: A002 - explanation"
+                # But invalid if no colon at all
+                if ':' not in line.split('noqa')[1].split()[0] if 'noqa' in line.lower() else False:
+                    invalid_noqa_lines.append(i)
+        
+        assert len(invalid_noqa_lines) == 0, (
+            f"Found invalid noqa comment syntax at lines: {invalid_noqa_lines}. "
+            "Use format: # noqa: CODE - explanation"
+        )
+
