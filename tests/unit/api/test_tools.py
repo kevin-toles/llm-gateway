@@ -290,7 +290,7 @@ class TestCalculatorTool:
         
         result = calculator_tool(a=10.0, b=2.0, operation="divide")
         
-        assert result["result"] == 5.0
+        assert result["result"] == pytest.approx(5.0)
         assert result["operation"] == "divide"
 
     def test_calculator_addition_works(self):
@@ -303,7 +303,7 @@ class TestCalculatorTool:
         
         result = calculator_tool(a=3.0, b=4.0, operation="add")
         
-        assert result["result"] == 7.0
+        assert result["result"] == pytest.approx(7.0)
         assert result["operation"] == "add"
 
 

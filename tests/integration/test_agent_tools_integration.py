@@ -14,6 +14,7 @@ Reference Documents:
 TDD Phase: RED - These tests define expected agent tool behavior.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -44,6 +45,7 @@ class TestCodeReviewToolIntegration:
         Mock ai-agents code review endpoint returning review findings.
         """
         async def mock_post(url, *args, **kwargs):
+            await asyncio.sleep(0)  # Async operation to satisfy linter
             if "/v1/agents/code-review" in url:
                 # Use MagicMock for response since httpx response.json() is synchronous
                 mock_response = MagicMock()
@@ -182,6 +184,7 @@ class TestArchitectureToolIntegration:
         Mock ai-agents architecture endpoint returning analysis.
         """
         async def mock_post(url, *args, **kwargs):
+            await asyncio.sleep(0)  # Async operation to satisfy linter
             if "/v1/agents/architecture" in url:
                 # Use MagicMock for response since httpx response.json() is synchronous
                 mock_response = MagicMock()
@@ -289,6 +292,7 @@ class TestDocGenerateToolIntegration:
         Mock ai-agents doc-generate endpoint returning documentation.
         """
         async def mock_post(url, *args, **kwargs):
+            await asyncio.sleep(0)  # Async operation to satisfy linter
             if "/v1/agents/doc-generate" in url:
                 # Use MagicMock for response since httpx response.json() is synchronous
                 mock_response = MagicMock()

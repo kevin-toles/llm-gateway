@@ -198,11 +198,9 @@ class TestOpenAPIExport:
         response = client.get("/openapi.json")
         spec = response.json()
         
-        # Should be convertible to YAML
+        # Should be convertible to YAML and parseable back
         yaml_output = yaml.dump(spec, default_flow_style=False)
         assert len(yaml_output) > 0
-        
-        # Should be parseable back
         parsed = yaml.safe_load(yaml_output)
         assert parsed["openapi"] == spec["openapi"]
 
