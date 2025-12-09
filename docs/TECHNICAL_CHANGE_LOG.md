@@ -18,6 +18,41 @@ This document tracks all implementation changes, their rationale, and git commit
 
 ---
 
+## 2025-12-09
+
+### CL-030: WBS 0.1.1 - Integration Profile Cross-Reference
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-09 |
+| **WBS Item** | 0.1.1 - Create Unified Docker Compose |
+| **Change Type** | Documentation |
+| **Summary** | Cross-reference to new integration profile in llm-document-enhancer |
+| **Files Changed** | `docs/TECHNICAL_CHANGE_LOG.md` |
+| **Rationale** | Track integration profile that orchestrates this service for testing |
+| **Git Commit** | Pending |
+
+**Integration Profile Location:**
+- Primary Platform: `/llm-platform/docker-compose.yml`
+- Integration Profile: `/llm-document-enhancer/docker-compose.integration.yml`
+
+**This Service in Integration Profile:**
+| Setting | Value |
+|---------|-------|
+| Container Name | `integration-llm-gateway` |
+| Port | 8080 |
+| Network | `integration-network` |
+| Health Check | `http://localhost:8080/health` |
+
+**Usage:**
+```bash
+# Run with integration profile
+cd /Users/kevintoles/POC/llm-document-enhancer
+docker-compose -f docker-compose.integration.yml --profile standalone up -d
+```
+
+---
+
 ## 2025-12-08
 
 ### CL-029: Phase 7 - Unified Platform Docker Compose Integration
