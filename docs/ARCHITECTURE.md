@@ -10,6 +10,61 @@ The LLM Gateway is a **microservice** that provides a unified API for LLM intera
 
 ---
 
+## Kitchen Brigade Role: ROUTER (Pass-Through)
+
+In the Kitchen Brigade architecture, **llm-gateway** is the **Router** - it directs requests but doesn't make content decisions:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         🚪 ROUTER - TRAFFIC DIRECTOR                         │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  WHAT IT DOES:                                                               │
+│  ─────────────                                                               │
+│  ✓ Routes LLM requests to appropriate providers (Anthropic, OpenAI, Ollama) │
+│  ✓ Manages chat sessions (in Redis)                                         │
+│  ✓ Registers and executes tools                                             │
+│  ✓ Handles rate limiting, auth, logging                                     │
+│  ✓ Proxies tool calls to other services                                     │
+│                                                                              │
+│  WHAT IT DOES NOT DO:                                                        │
+│  ────────────────────                                                        │
+│  ✗ Make decisions about content                                              │
+│  ✗ Extract keywords or validate terms                                        │
+│  ✗ Host HuggingFace models (that's Code-Orchestrator-Service)               │
+│  ✗ Filter or rank search results                                             │
+│                                                                              │
+│  TOOL EXECUTION:                                                             │
+│  ───────────────                                                             │
+│  When an LLM requests a tool like `cross_reference`, the gateway:           │
+│  1. Receives the tool request from the LLM                                  │
+│  2. Proxies to the appropriate service (ai-agents or Code-Orchestrator)     │
+│  3. Returns the result to the LLM                                            │
+│  The gateway is a pass-through - it doesn't interpret the tool's output.    │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Tool Proxy Pattern
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        LLM Gateway                              │
+│                                                                 │
+│  Tool Registry:                                                 │
+│  ├── cross_reference → POST to ai-agents /v1/agents/cross-ref  │
+│  ├── semantic_search → POST to semantic-search /v1/search      │
+│  ├── extract_terms   → POST to Code-Orchestrator /api/v1/extract│
+│  └── ...                                                        │
+│                                                                 │
+│  The gateway PROXIES these calls - it doesn't execute logic.   │
+│  Intelligence lives in the destination services.                │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Folder Structure
 
 ```
