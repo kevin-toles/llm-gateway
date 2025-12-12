@@ -107,7 +107,7 @@ def calculator_tool(a: float, b: float, operation: str = "add") -> dict[str, Any
 async def search_corpus_wrapper(
     query: str,
     top_k: int = 10,
-    collection: str = "default",
+    collection: str = "documents",
 ) -> dict[str, Any]:
     """
     Wrapper for search_corpus tool to adapt to keyword args pattern.
@@ -117,7 +117,7 @@ async def search_corpus_wrapper(
     Args:
         query: The search query.
         top_k: Maximum number of results (default: 10).
-        collection: Collection to search (default: 'default').
+        collection: Collection to search (default: 'documents').
 
     Returns:
         Search results from semantic-search-service.

@@ -91,8 +91,8 @@ SEARCH_CORPUS_DEFINITION = ToolDefinition(
             },
             "collection": {
                 "type": "string",
-                "description": "The document collection to search (default: 'default').",
-                "default": "default",
+                "description": "The document collection to search (default: 'documents').",
+                "default": "documents",
             },
         },
         "required": ["query"],
@@ -141,7 +141,7 @@ async def search_corpus(args: dict[str, Any]) -> dict[str, Any]:
         args: Dictionary containing:
             - query (str): The search query.
             - top_k (int, optional): Max results to return (default: 10).
-            - collection (str, optional): Collection to search (default: 'default').
+            - collection (str, optional): Collection to search (default: 'documents').
 
     Returns:
         Dictionary containing search results with:
@@ -160,12 +160,12 @@ async def search_corpus(args: dict[str, Any]) -> dict[str, Any]:
     # Extract parameters with defaults
     query = args.get("query", "")
     top_k = args.get("top_k", 10)
-    collection = args.get("collection", "default")
+    collection = args.get("collection", "documents")  # Fixed: default to "documents"
 
-    # Build request payload
+    # Build request payload - map to semantic-search-service schema
     payload = {
         "query": query,
-        "top_k": top_k,
+        "limit": top_k,  # Fixed: semantic-search uses "limit" not "top_k"
         "collection": collection,
     }
 
