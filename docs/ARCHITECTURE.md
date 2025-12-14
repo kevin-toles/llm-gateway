@@ -303,6 +303,54 @@ This enables users to say "use the Security taxonomy" once, and all subsequent s
 
 ---
 
+## Enrichment Scalability - Gateway Role
+
+The LLM Gateway is a **transparent pass-through** for enriched data. The "compute once, filter at query-time" pattern is fully implemented in semantic-search-service.
+
+### Gateway Does NOT:
+
+| Aspect | Gateway Role |
+|--------|--------------|
+| Filter `similar_chapters` | ❌ Proxied to semantic-search-service |
+| Cache enriched data | ❌ Semantic-search handles caching |
+| Apply taxonomy to results | ❌ Done by downstream service |
+| Trigger enrichment updates | ❌ CI/CD handles in ai-platform-data |
+
+### Gateway DOES:
+
+| Aspect | Gateway Role |
+|--------|--------------|
+| Pass `taxonomy` parameter | ✅ Extracted from user prompt/session |
+| Pass `tier_filter` parameter | ✅ From session context |
+| Proxy to semantic-search | ✅ Transparent routing |
+| Return results unchanged | ✅ No interpretation |
+
+### Architecture Compliance
+
+```
+User: "Get similar chapters for arch_patterns_ch4, use AI-ML taxonomy"
+    ↓
+LLM Gateway (Router) - EXTRACTS taxonomy, PROXIES request
+    ↓
+POST http://semantic-search:8081/v1/search/similar-chapters
+{
+    "chapter_id": "arch_patterns_ch4",
+    "taxonomy": "AI-ML_taxonomy"
+}
+    ↓
+Semantic Search Service - FILTERS similar_chapters by taxonomy
+    ↓
+{
+    "similar_chapters": [...filtered results with tier info...]
+}
+    ↓
+LLM Gateway - RETURNS results unchanged to user
+```
+
+The gateway requires **no code changes** to support enrichment scalability. All filtering logic is in semantic-search-service.
+
+---
+
 ## Components
 
 ### Provider Router

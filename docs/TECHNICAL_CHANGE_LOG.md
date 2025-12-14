@@ -20,6 +20,48 @@ This document tracks all implementation changes, their rationale, and git commit
 
 ## 2025-12-13
 
+### CL-032: Enrichment Scalability - Transparent Pass-Through
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-13 |
+| **WBS Item** | Phase 3.7 - Incremental/Delta Enrichment Pipeline |
+| **Change Type** | Architecture |
+| **Summary** | Gateway remains a transparent pass-through for enriched data filtering |
+| **Files Changed** | `docs/ARCHITECTURE.md`, `docs/TECHNICAL_CHANGE_LOG.md` |
+| **Rationale** | Support scalable enrichment without gateway logic changes |
+| **Git Commit** | Pending |
+
+**Key Insight:**
+
+The LLM Gateway is NOT affected by the enrichment scalability changes. As the **Router** in the Kitchen Brigade model, it:
+- Passes taxonomy parameters to downstream services
+- Does NOT interpret or filter enriched data
+- Does NOT cache enriched results (that's semantic-search-service's responsibility)
+
+**No Changes Required:**
+
+| Aspect | Status |
+|--------|--------|
+| Tool routing | ✅ Already passes `taxonomy` param |
+| Session context | ✅ Already stores `taxonomy` in session |
+| Similar chapters requests | ✅ Proxied to semantic-search-service |
+| Enriched data filtering | N/A - semantic-search-service handles |
+
+**Architecture Compliance:**
+
+```
+LLM Gateway (Router) - PASS-THROUGH
+    ↓ taxonomy param
+Semantic Search Service (Cookbook) - FILTERS similar_chapters
+    ↓ filtered results
+LLM Gateway - RETURNS results unchanged
+```
+
+The "compute once, filter at query-time" pattern is fully implemented in semantic-search-service. Gateway requires no code changes.
+
+---
+
 ### CL-031: Taxonomy-Aware Tool Routing
 
 | Field | Value |
