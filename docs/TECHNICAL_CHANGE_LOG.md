@@ -18,6 +18,62 @@ This document tracks all implementation changes, their rationale, and git commit
 
 ---
 
+## 2025-12-13
+
+### CL-031: Taxonomy-Aware Tool Routing
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-13 |
+| **WBS Item** | Phase 3.6 - Taxonomy Registry & Query-Time Resolution |
+| **Change Type** | Architecture |
+| **Summary** | Gateway now passes taxonomy context to downstream services |
+| **Files Changed** | `docs/ARCHITECTURE.md` |
+| **Rationale** | Support taxonomy as query-time overlay across all services |
+| **Git Commit** | Pending |
+
+**Key Changes:**
+
+| Aspect | Description |
+|--------|-------------|
+| **Tool Routing** | Gateway passes `taxonomy` param to semantic-search-service |
+| **Session Context** | Sessions can store default taxonomy for all tool calls |
+| **Tool-Use Orchestrator** | Now includes taxonomy context when proxying to downstream services |
+
+**Session Taxonomy Context:**
+
+```json
+POST /v1/sessions
+{
+  "context": {
+    "taxonomy": "AI-ML_taxonomy",
+    "tier_filter": [1, 2, 3]
+  }
+}
+```
+
+**Tool Proxy Flow:**
+```
+User: "Search for auth patterns, use Security taxonomy"
+  ↓
+LLM Gateway extracts taxonomy from context
+  ↓
+POST http://semantic-search-service:8081/v1/search/hybrid
+{
+  "query": "auth patterns",
+  "taxonomy": "Security_taxonomy"  ← Passed from user context
+}
+  ↓
+Results returned with tier/priority from Security taxonomy
+```
+
+**Benefits:**
+- Users can say "use Security taxonomy" once, applies to all searches in session
+- Gateway is transparent pass-through for taxonomy (no re-seeding logic)
+- Downstream services handle taxonomy loading from ai-platform-data
+
+---
+
 ## 2025-12-09
 
 ### CL-030: WBS 0.1.1 - Integration Profile Cross-Reference

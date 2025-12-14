@@ -42,6 +42,9 @@ from src.tools.builtin.code_review import review_code
 from src.tools.builtin.architecture import analyze_architecture
 from src.tools.builtin.doc_generate import generate_documentation
 
+# WBS 2.4.3.2: Import cross-reference tool (ai-agents proxy)
+from src.tools.builtin.cross_reference import cross_reference
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -199,6 +202,73 @@ async def generate_documentation_wrapper(
     """
     args = {"code": code, "format": format}
     return await generate_documentation(args)
+
+
+# =============================================================================
+# WBS 2.4.3.2: Cross-Reference Tool Wrapper
+# Pattern: Service proxy (proxies to ai-agents Cross-Reference Agent)
+# =============================================================================
+
+
+async def cross_reference_wrapper(
+    book: str,
+    chapter: int,
+    title: str,
+    tier: int,
+    content: str | None = None,
+    keywords: list[str] | None = None,
+    concepts: list[str] | None = None,
+    max_hops: int = 3,
+    min_similarity: float = 0.7,
+    include_tier1: bool = True,
+    include_tier2: bool = True,
+    include_tier3: bool = True,
+    taxonomy_id: str = "ai-ml",
+) -> dict[str, Any]:
+    """
+    Wrapper for cross_reference tool to adapt to keyword args pattern.
+
+    WBS 2.4.3.2.5: Call cross_reference tool through gateway.
+
+    This tool proxies to the ai-agents Cross-Reference Agent, which:
+    - Traverses the taxonomy graph (Spider Web Model)
+    - Finds related content across tiers
+    - Generates scholarly annotations with Chicago-style citations
+
+    Args:
+        book: Source book title.
+        chapter: Chapter number (1-indexed).
+        title: Chapter title.
+        tier: Tier level (1=Architecture, 2=Implementation, 3=Practices).
+        content: Chapter content text (optional).
+        keywords: Extracted keywords from the chapter.
+        concepts: Key concepts from the chapter.
+        max_hops: Maximum traversal depth in taxonomy graph (default: 3).
+        min_similarity: Minimum similarity threshold (default: 0.7).
+        include_tier1: Include Architecture Spine results (default: True).
+        include_tier2: Include Implementation results (default: True).
+        include_tier3: Include Practices results (default: True).
+        taxonomy_id: Taxonomy identifier (default: 'ai-ml').
+
+    Returns:
+        Cross-reference results from ai-agents service.
+    """
+    args = {
+        "book": book,
+        "chapter": chapter,
+        "title": title,
+        "tier": tier,
+        "content": content,
+        "keywords": keywords or [],
+        "concepts": concepts or [],
+        "max_hops": max_hops,
+        "min_similarity": min_similarity,
+        "include_tier1": include_tier1,
+        "include_tier2": include_tier2,
+        "include_tier3": include_tier3,
+        "taxonomy_id": taxonomy_id,
+    }
+    return await cross_reference(args)
 
 
 # =============================================================================
@@ -382,6 +452,89 @@ BUILTIN_TOOLS: dict[str, tuple[ToolDefinition, ToolFunction]] = {
             },
         ),
         generate_documentation_wrapper,
+    ),
+    # =========================================================================
+    # WBS 2.4.3.2: Cross-Reference Tool
+    # Pattern: Service proxy (proxies to ai-agents Cross-Reference Agent)
+    # Kitchen Brigade: Gateway -> ai-agents -> semantic-search
+    # =========================================================================
+    "cross_reference": (
+        ToolDefinition(
+            name="cross_reference",
+            description="Generate cross-references for a source chapter using the Cross-Reference Agent. "
+            "This tool finds related content across the document corpus by traversing the taxonomy graph "
+            "(Spider Web Model) and generates scholarly annotations with Chicago-style citations.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "book": {
+                        "type": "string",
+                        "description": "Source book title (e.g., 'Architecture Patterns with Python').",
+                    },
+                    "chapter": {
+                        "type": "integer",
+                        "description": "Chapter number (1-indexed).",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Chapter title.",
+                    },
+                    "tier": {
+                        "type": "integer",
+                        "description": "Tier level: 1=Architecture, 2=Implementation, 3=Practices.",
+                        "enum": [1, 2, 3],
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Chapter content text (optional, can be retrieved by agent).",
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Extracted keywords from the chapter.",
+                        "default": [],
+                    },
+                    "concepts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Key concepts from the chapter.",
+                        "default": [],
+                    },
+                    "max_hops": {
+                        "type": "integer",
+                        "description": "Maximum traversal depth in the taxonomy graph (default: 3).",
+                        "default": 3,
+                    },
+                    "min_similarity": {
+                        "type": "number",
+                        "description": "Minimum similarity threshold for matches (default: 0.7).",
+                        "default": 0.7,
+                    },
+                    "include_tier1": {
+                        "type": "boolean",
+                        "description": "Include Tier 1 (Architecture Spine) results (default: true).",
+                        "default": True,
+                    },
+                    "include_tier2": {
+                        "type": "boolean",
+                        "description": "Include Tier 2 (Implementation) results (default: true).",
+                        "default": True,
+                    },
+                    "include_tier3": {
+                        "type": "boolean",
+                        "description": "Include Tier 3 (Engineering Practices) results (default: true).",
+                        "default": True,
+                    },
+                    "taxonomy_id": {
+                        "type": "string",
+                        "description": "Taxonomy identifier (default: 'ai-ml').",
+                        "default": "ai-ml",
+                    },
+                },
+                "required": ["book", "chapter", "title", "tier"],
+            },
+        ),
+        cross_reference_wrapper,
     ),
 }
 

@@ -256,6 +256,53 @@ llm-gateway/
 
 ---
 
+## Taxonomy-Aware Tool Routing
+
+The LLM Gateway supports taxonomy-aware tool execution. When users specify a taxonomy in their prompt, the gateway passes this to downstream services.
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  User Prompt: "Search for rate limiting patterns, use AI-ML taxonomy"       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. LLM Gateway receives chat request                                        │
+│  2. LLM decides to call semantic_search tool                                │
+│  3. Gateway extracts taxonomy from user context/prompt                       │
+│  4. Gateway proxies to semantic-search-service WITH taxonomy parameter:      │
+│                                                                              │
+│     POST http://semantic-search-service:8081/v1/search/hybrid               │
+│     {                                                                        │
+│       "query": "rate limiting patterns",                                    │
+│       "taxonomy": "AI-ML_taxonomy",    ← Passed from user context           │
+│       "tier_filter": [1, 2]            ← Optional tier filter               │
+│     }                                                                        │
+│                                                                              │
+│  5. Results returned with tier/priority from specified taxonomy              │
+│  6. LLM uses tier info to prioritize references in response                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Session Taxonomy Context
+
+Sessions can store a default taxonomy that applies to all tool calls:
+
+```json
+POST /v1/sessions
+{
+  "context": {
+    "taxonomy": "AI-ML_taxonomy",
+    "tier_filter": [1, 2, 3]
+  }
+}
+```
+
+This enables users to say "use the Security taxonomy" once, and all subsequent searches in that session use it automatically.
+
+---
+
 ## Components
 
 ### Provider Router
@@ -266,10 +313,12 @@ Routes requests to the appropriate LLM provider based on model name or configura
 - Parses LLM tool_call responses
 - Executes tools (local or proxied to other microservices)
 - Returns results to LLM for continuation
+- **Passes taxonomy context to downstream services**
 
 ### Session Manager
 - Creates sessions with TTL
 - Stores conversation history
+- **Stores taxonomy context per session**
 - Uses Redis for distributed session storage
 
 ### Operational Controls
