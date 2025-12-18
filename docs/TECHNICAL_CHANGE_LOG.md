@@ -18,6 +18,40 @@ This document tracks all implementation changes, their rationale, and git commit
 
 ---
 
+## 2025-12-18
+
+### CL-033: EEP-6 Diagram Similarity - Gateway Impact Assessment
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-18 |
+| **WBS Item** | ENHANCED_ENRICHMENT_PIPELINE_WBS.md - Phase EEP-6 |
+| **Change Type** | Documentation |
+| **Summary** | EEP-6 Diagram Similarity implemented in Code-Orchestrator-Service. Gateway may route diagram analysis requests in future. |
+| **Files Changed** | `docs/TECHNICAL_CHANGE_LOG.md` |
+| **Rationale** | Document potential tool routing extensions |
+| **Git Commit** | N/A (documentation only) |
+
+**Gateway Role in EEP-6:**
+
+The LLM Gateway maintains its **Router** role in the Kitchen Brigade. EEP-6 diagram similarity is hosted in Code-Orchestrator-Service (Sous Chef). Future tool routing may include:
+
+| Tool | Route Target | Status |
+|------|--------------|--------|
+| `analyze_diagram` | Code-Orchestrator `/api/v1/diagrams/extract` | Future |
+| `find_similar_diagrams` | Code-Orchestrator `/api/v1/diagrams/similar` | Future |
+
+**No Code Changes Required**: EEP-6 is self-contained in Code-Orchestrator-Service.
+
+**Architecture Compliance**:
+- ✅ Gateway remains pass-through for ML operations
+- ✅ Code-Orchestrator-Service handles all diagram analysis
+- ✅ No duplication of SBERT infrastructure
+
+**Deviations from Original Architecture**: None
+
+---
+
 ## 2025-12-13
 
 ### CL-032: Enrichment Scalability - Transparent Pass-Through
