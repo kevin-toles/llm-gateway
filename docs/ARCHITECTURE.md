@@ -10,6 +10,46 @@ The LLM Gateway is a **microservice** that provides a unified API for LLM intera
 
 ---
 
+## ⚠️ Gateway-First Communication Pattern
+
+**CRITICAL RULE**: All external applications MUST route through the Gateway.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                    SERVICE COMMUNICATION PATTERN                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  EXTERNAL → PLATFORM: Via Gateway:8080 (REQUIRED)                           │
+│  ─────────────────────────────────────────────────                          │
+│  Applications outside the AI Platform must route through Gateway.           │
+│                                                                              │
+│  ✅ llm-document-enhancer → Gateway:8080 → ai-agents:8082                   │
+│  ✅ VS Code Extension → Gateway:8080 → ai-agents:8082                       │
+│  ❌ llm-document-enhancer → ai-agents:8082 (VIOLATION!)                     │
+│                                                                              │
+│  INTERNAL (Platform Services): Direct calls allowed                          │
+│  ───────────────────────────────────────────────────                         │
+│  Platform services (ai-agents, audit-service, Code-Orchestrator,            │
+│  semantic-search) may call each other directly.                             │
+│                                                                              │
+│  ✅ ai-agents:8082 → audit-service:8084 (internal)                          │
+│  ✅ ai-agents:8082 → Code-Orchestrator:8083 (internal)                      │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Platform Services (Internal Mesh)
+
+| Service | Port | Direct Access From |
+|---------|------|-------------------|
+| `llm-gateway` | 8080 | External apps (entry point) |
+| `ai-agents` | 8082 | Gateway, platform services |
+| `semantic-search-service` | 8081 | Gateway, platform services |
+| `Code-Orchestrator-Service` | 8083 | Platform services only |
+| `audit-service` | 8084 | Platform services only |
+
+---
+
 ## Kitchen Brigade Role: ROUTER (Pass-Through)
 
 In the Kitchen Brigade architecture, **llm-gateway** is the **Router** - it directs requests but doesn't make content decisions:

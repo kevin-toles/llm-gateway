@@ -18,6 +18,36 @@ This document tracks all implementation changes, their rationale, and git commit
 
 ---
 
+## 2025-12-19
+
+### CL-034: Gateway-First Communication Pattern Documentation
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-19 |
+| **WBS Item** | Architecture Documentation |
+| **Change Type** | Documentation |
+| **Summary** | Added Gateway-First Communication Pattern section to ARCHITECTURE.md. External applications MUST route through Gateway:8080. |
+| **Files Changed** | `docs/ARCHITECTURE.md` |
+| **Rationale** | Explicitly document that Gateway is the single entry point for all external applications. Internal platform services may communicate directly. |
+| **Git Commit** | Pending |
+
+**Communication Pattern:**
+
+| Source | Target | Route | Status |
+|--------|--------|-------|--------|
+| External app (llm-document-enhancer) | ai-agents | Via Gateway:8080 | ✅ REQUIRED |
+| External app (VS Code extension) | any service | Via Gateway:8080 | ✅ REQUIRED |
+| Platform service (ai-agents) | audit-service | Direct:8084 | ✅ Allowed |
+| Platform service (ai-agents) | Code-Orchestrator | Direct:8083 | ✅ Allowed |
+
+**Architecture Compliance**:
+- ✅ Gateway is single entry point for external access
+- ✅ Platform services communicate directly for efficiency
+- ✅ Centralized security, rate-limiting, and observability at Gateway
+
+---
+
 ## 2025-12-18
 
 ### CL-033: EEP-6 Diagram Similarity - Gateway Impact Assessment
