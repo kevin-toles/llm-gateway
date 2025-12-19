@@ -45,6 +45,9 @@ from src.tools.builtin.doc_generate import generate_documentation
 # WBS 2.4.3.2: Import cross-reference tool (ai-agents proxy)
 from src.tools.builtin.cross_reference import cross_reference
 
+# WBS MSE-6: Import enrich-metadata tool (ai-agents MSEP proxy)
+from src.tools.builtin.enrich_metadata import enrich_metadata
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -269,6 +272,45 @@ async def cross_reference_wrapper(
         "taxonomy_id": taxonomy_id,
     }
     return await cross_reference(args)
+
+
+# =============================================================================
+# WBS MSE-6: Enrich Metadata Tool Wrapper
+# Pattern: Service proxy (proxies to ai-agents MSEP endpoint)
+# Kitchen Brigade: Gateway (MANAGER) -> ai-agents (EXPEDITOR)
+# =============================================================================
+
+
+async def enrich_metadata_wrapper(
+    corpus: list[str],
+    chapter_index: list[dict[str, Any]],
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Wrapper for enrich_metadata tool to adapt to keyword args pattern.
+
+    WBS MSE-6.1: Call enrich_metadata tool through gateway.
+
+    Kitchen Brigade Pattern:
+    - External apps (llm-document-enhancer) call Gateway
+    - Gateway routes to ai-agents MSEP endpoint
+    - NO direct ai-agents calls from external apps
+
+    Args:
+        corpus: List of document texts (one per chapter).
+        chapter_index: Metadata for each chapter (book, chapter, title).
+        config: Optional MSEP configuration parameters.
+
+    Returns:
+        Enriched metadata from ai-agents MSEP service.
+    """
+    args: dict[str, Any] = {
+        "corpus": corpus,
+        "chapter_index": chapter_index,
+    }
+    if config is not None:
+        args["config"] = config
+    return await enrich_metadata(args)
 
 
 # =============================================================================
@@ -535,6 +577,57 @@ BUILTIN_TOOLS: dict[str, tuple[ToolDefinition, ToolFunction]] = {
             },
         ),
         cross_reference_wrapper,
+    ),
+    # =========================================================================
+    # WBS MSE-6: Enrich Metadata Tool (MSEP)
+    # Pattern: Service proxy (proxies to ai-agents MSEP endpoint)
+    # Kitchen Brigade: External apps -> Gateway -> ai-agents
+    # =========================================================================
+    "enrich_metadata": (
+        ToolDefinition(
+            name="enrich_metadata",
+            description="Enrich book chapter metadata using MSEP (Multi-Stage Enrichment Pipeline). "
+            "Extracts keywords, identifies topics, and generates cross-references between chapters "
+            "using semantic similarity. Returns enriched metadata with provenance tracking.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "corpus": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of document texts (one per chapter) to enrich.",
+                    },
+                    "chapter_index": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "book": {"type": "string"},
+                                "chapter": {"type": "integer"},
+                                "title": {"type": "string"},
+                                "id": {"type": "string"},
+                            },
+                            "required": ["book", "chapter", "title"],
+                        },
+                        "description": "Metadata for each chapter (book, chapter, title).",
+                    },
+                    "config": {
+                        "type": "object",
+                        "properties": {
+                            "threshold": {"type": "number"},
+                            "top_k": {"type": "integer"},
+                            "timeout": {"type": "number"},
+                            "same_topic_boost": {"type": "number"},
+                            "use_dynamic_threshold": {"type": "boolean"},
+                            "enable_hybrid_search": {"type": "boolean"},
+                        },
+                        "description": "Optional MSEP configuration parameters.",
+                    },
+                },
+                "required": ["corpus", "chapter_index"],
+            },
+        ),
+        enrich_metadata_wrapper,
     ),
 }
 

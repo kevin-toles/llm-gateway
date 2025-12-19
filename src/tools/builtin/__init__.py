@@ -29,6 +29,11 @@ from src.tools.builtin.cross_reference import (
     CROSS_REFERENCE_DEFINITION,
     CrossReferenceServiceError,
 )
+from src.tools.builtin.enrich_metadata import (
+    enrich_metadata,
+    ENRICH_METADATA_DEFINITION,
+    EnrichMetadataServiceError,
+)
 from src.tools.registry import ToolRegistry
 from src.models.domain import RegisteredTool
 
@@ -61,6 +66,13 @@ def register_builtin_tools(registry: ToolRegistry) -> None:
         RegisteredTool(definition=CROSS_REFERENCE_DEFINITION, handler=cross_reference),
     )
 
+    # Register enrich_metadata (ai-agents MSEP service proxy)
+    # Kitchen Brigade: External apps call Gateway, Gateway routes to ai-agents
+    registry.register(
+        "enrich_metadata",
+        RegisteredTool(definition=ENRICH_METADATA_DEFINITION, handler=enrich_metadata),
+    )
+
 
 __all__ = [
     # Semantic Search
@@ -76,6 +88,10 @@ __all__ = [
     "cross_reference",
     "CROSS_REFERENCE_DEFINITION",
     "CrossReferenceServiceError",
+    # Enrich Metadata (ai-agents MSEP proxy)
+    "enrich_metadata",
+    "ENRICH_METADATA_DEFINITION",
+    "EnrichMetadataServiceError",
     # Registration
     "register_builtin_tools",
 ]
