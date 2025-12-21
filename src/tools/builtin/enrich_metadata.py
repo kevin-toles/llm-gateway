@@ -59,8 +59,8 @@ def get_ai_agents_circuit_breaker() -> CircuitBreaker:
         settings = get_settings()
         _ai_agents_circuit_breaker = CircuitBreaker(
             failure_threshold=settings.circuit_breaker_failure_threshold,
-            recovery_timeout=settings.circuit_breaker_recovery_timeout,
-            half_open_requests=settings.circuit_breaker_half_open_requests,
+            recovery_timeout_seconds=settings.circuit_breaker_recovery_timeout_seconds,
+            name="ai-agents",
         )
     return _ai_agents_circuit_breaker
 
