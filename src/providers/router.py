@@ -52,9 +52,13 @@ class ProviderRouter:
         "mistral": "ollama",
         "codellama": "ollama",
         "deepseek": "ollama",
-        "qwen": "ollama",
         "gemma": "ollama",
         "phi": "ollama",
+        # OpenRouter models (POC for local LLMs)
+        "qwen": "openrouter",
+        "meta-llama": "openrouter",
+        "mistralai": "openrouter",
+        "openrouter": "openrouter",
     }
 
     def __init__(
@@ -171,9 +175,9 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
     Factory function that instantiates providers based on available
     API keys in settings and creates a router with them.
 
-    Note: This function gracefully handles missing provider implementations.
-    Provider classes that haven't been implemented yet (e.g., AnthropicProvider)
-    will be skipped with a warning.
+    POC Configuration (per INTER_AI_ORCHESTRATION.md):
+    - OpenAI: GPT-4o (gpt-4o)
+    - OpenRouter: Qwen (qwen/qwen3-coder)
 
     Args:
         settings: Application settings containing API keys and defaults.
@@ -183,42 +187,45 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
     """
     providers: dict[str, LLMProvider] = {}
 
-    # Try to add Anthropic if API key is available
-    # SecretStr.get_secret_value() returns the actual string value
+    # OpenAI - for GPT models (POC: gpt-4o)
+    if settings.openai_api_key is not None:
+        openai_key = settings.openai_api_key.get_secret_value()
+        if openai_key:
+            from src.providers.openai import OpenAIProvider
+            providers["openai"] = OpenAIProvider(api_key=openai_key)
+            logger.info("OpenAI provider registered")
+
+    # OpenRouter - for Qwen (POC: qwen/qwen3-coder)
+    if settings.openrouter_api_key is not None:
+        openrouter_key = settings.openrouter_api_key.get_secret_value()
+        if openrouter_key:
+            from src.providers.openrouter import OpenRouterProvider
+            providers["openrouter"] = OpenRouterProvider(api_key=openrouter_key)
+            logger.info("OpenRouter provider registered (Qwen POC)")
+
+    # Anthropic - optional, not required for POC
     if settings.anthropic_api_key is not None:
         anthropic_key = settings.anthropic_api_key.get_secret_value()
         if anthropic_key:
             try:
                 from src.providers.anthropic import AnthropicProvider
-
                 providers["anthropic"] = AnthropicProvider(api_key=anthropic_key)
-            except ImportError:
-                logger.warning("AnthropicProvider not yet implemented, skipping")
-
-    # Try to add OpenAI if API key is available
-    if settings.openai_api_key is not None:
-        openai_key = settings.openai_api_key.get_secret_value()
-        if openai_key:
-            try:
-                from src.providers.openai import OpenAIProvider
-
-                providers["openai"] = OpenAIProvider(api_key=openai_key)
-            except ImportError:
-                logger.warning("OpenAIProvider not yet implemented, skipping")
-
-    # Try to add Ollama (local, no API key needed)
-    try:
-        from src.providers.ollama import OllamaProvider
-
-        providers["ollama"] = OllamaProvider(base_url=str(settings.ollama_url))
-    except ImportError:
-        logger.warning("OllamaProvider not yet implemented, skipping")
+                logger.info("Anthropic provider registered")
+            except Exception as e:
+                logger.warning(f"Could not initialize Anthropic provider: {e}")
 
     # Log available providers
     provider_names = list(providers.keys())
-    logger.info(f"Initialized provider router with providers: {provider_names}")
+    logger.info(f"Provider router initialized with: {provider_names}")
+    
+    if not providers:
+        logger.error(
+            "No LLM providers available! Set OPENAI_API_KEY and OPENROUTER_API_KEY "
+            "environment variables for the POC."
+        )
 
     return ProviderRouter(
         providers=providers,
-        default_provider=settings.default_provider,
+        default_provider=settings.default_provider if settings.default_provider in providers else None,
     )
+

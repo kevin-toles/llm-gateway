@@ -63,9 +63,7 @@ class TestChatCompletionsEndpoint:
     # WBS 2.2.2.3.1: POST /v1/chat/completions basic functionality
     # =========================================================================
 
-    def test_chat_completions_returns_200(
-        self, client: TestClient, mock_chat_service: MagicMock
-    ):
+    def test_chat_completions_returns_200(self, client: TestClient):
         """
         WBS 2.2.2.3.1: POST /v1/chat/completions returns 200 for valid request.
 
@@ -78,9 +76,7 @@ class TestChatCompletionsEndpoint:
         response = client.post("/v1/chat/completions", json=payload)
         assert response.status_code == 200
 
-    def test_chat_completions_returns_expected_schema(
-        self, client: TestClient, mock_chat_service: MagicMock
-    ):
+    def test_chat_completions_returns_expected_schema(self, client: TestClient):
         """
         WBS 2.2.2.3.2: Response must include id, object, created, model, choices, usage.
 
@@ -100,9 +96,7 @@ class TestChatCompletionsEndpoint:
         assert "choices" in data
         assert "usage" in data
 
-    def test_chat_completions_choices_have_correct_structure(
-        self, client: TestClient, mock_chat_service: MagicMock
-    ):
+    def test_chat_completions_choices_have_correct_structure(self, client: TestClient):
         """
         WBS 2.2.2.3.3: Each choice must have index, message, finish_reason.
 
@@ -123,9 +117,7 @@ class TestChatCompletionsEndpoint:
         assert "role" in choice["message"]
         assert "content" in choice["message"]
 
-    def test_chat_completions_usage_has_correct_structure(
-        self, client: TestClient, mock_chat_service: MagicMock
-    ):
+    def test_chat_completions_usage_has_correct_structure(self, client: TestClient):
         """
         WBS 2.2.2.3.4: Usage must include prompt_tokens, completion_tokens, total_tokens.
         """
@@ -193,9 +185,7 @@ class TestChatCompletionsOptionalParams:
     # Pattern: Optional types with explicit None (ANTI_PATTERN §1.1)
     # =========================================================================
 
-    def test_chat_completions_accepts_session_id(
-        self, client: TestClient, mock_chat_service: MagicMock
-    ):
+    def test_chat_completions_accepts_session_id(self, client: TestClient):
         """
         WBS 2.2.2.2.9: Request may include 'session_id' parameter.
 
@@ -241,9 +231,7 @@ class TestChatCompletionsOptionalParams:
         )
         assert request.session_id is None
 
-    def test_chat_completions_accepts_temperature(
-        self, client: TestClient, mock_chat_service: MagicMock
-    ):
+    def test_chat_completions_accepts_temperature(self, client: TestClient):
         """
         WBS 2.2.2.2.1: Request may include 'temperature' parameter.
         """
@@ -255,9 +243,7 @@ class TestChatCompletionsOptionalParams:
         response = client.post("/v1/chat/completions", json=payload)
         assert response.status_code == 200
 
-    def test_chat_completions_accepts_max_tokens(
-        self, client: TestClient, mock_chat_service: MagicMock
-    ):
+    def test_chat_completions_accepts_max_tokens(self, client: TestClient):
         """
         WBS 2.2.2.2.2: Request may include 'max_tokens' parameter.
         """
@@ -269,9 +255,7 @@ class TestChatCompletionsOptionalParams:
         response = client.post("/v1/chat/completions", json=payload)
         assert response.status_code == 200
 
-    def test_chat_completions_accepts_tools(
-        self, client: TestClient, mock_chat_service: MagicMock
-    ):
+    def test_chat_completions_accepts_tools(self, client: TestClient):
         """
         WBS 2.2.2.2.3: Request may include 'tools' parameter for function calling.
 
@@ -297,9 +281,7 @@ class TestChatCompletionsOptionalParams:
         response = client.post("/v1/chat/completions", json=payload)
         assert response.status_code == 200
 
-    def test_chat_completions_accepts_tool_choice(
-        self, client: TestClient, mock_chat_service: MagicMock
-    ):
+    def test_chat_completions_accepts_tool_choice(self, client: TestClient):
         """
         WBS 2.2.2.2.4: Request may include 'tool_choice' parameter.
         """
@@ -385,13 +367,19 @@ class TestChatService:
     def test_get_chat_service_returns_service(self):
         """
         WBS 2.2.2.3.11: get_chat_service dependency must return ChatService.
+        Issue 27: Now returns real ChatService from src/services/chat.py
 
         Pattern: Dependency injection factory (Sinha p. 90)
         """
         from src.api.routes.chat import get_chat_service
+        from src.services.chat import ChatService as RealChatService
+        
+        # Reset cached service
+        import src.api.routes.chat as chat_module
+        chat_module._chat_service = None
 
         service = get_chat_service()
-        assert isinstance(service, ChatService)
+        assert isinstance(service, RealChatService)
 
 
 class TestProviderErrorHandling:
@@ -406,86 +394,99 @@ class TestProviderErrorHandling:
     indicates the upstream service failed."
     """
 
-    def test_provider_error_returns_502(self, client: TestClient):
+    @pytest.fixture
+    def error_client(self):
+        """
+        Create test client with FakeProvider configured to raise ProviderError.
+        
+        Pattern: Test doubles with error injection (GUIDELINES p. 157)
+        """
+        from fastapi import FastAPI
+        from src.api.routes.chat import router as chat_router, get_chat_service
+        from src.services.chat import ChatService
+        from src.providers.router import ProviderRouter
+        from src.providers.fake import FakeProvider
+        from src.tools.executor import ToolExecutor
+        from src.tools.registry import get_tool_registry
+        from src.core.exceptions import ProviderError
+        
+        # Create FakeProvider that raises ProviderError
+        error_provider = FakeProvider(
+            error_on_complete=ProviderError(
+                message="Provider API unavailable",
+                provider="test",
+                status_code=503,
+            )
+        )
+        
+        # Create router with error provider
+        router = ProviderRouter(
+            providers={"anthropic": error_provider, "openai": error_provider},
+            default_provider="anthropic"
+        )
+        
+        # Create real ChatService with error-configured router
+        service = ChatService(
+            router=router,
+            executor=ToolExecutor(registry=get_tool_registry())
+        )
+        
+        app = FastAPI()
+        app.include_router(chat_router)
+        app.dependency_overrides[get_chat_service] = lambda: service
+        
+        return TestClient(app)
+
+    def test_provider_error_returns_502(self, error_client: TestClient):
         """
         WBS 2.2.2.3.9: Provider error must return 502 Bad Gateway.
 
         Pattern: Error translation (Newman pp. 273-275)
         """
-        from src.core.exceptions import ProviderError
+        payload = {
+            "model": "claude-3-sonnet",
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+        response = error_client.post("/v1/chat/completions", json=payload)
 
-        # Mock ChatService to raise ProviderError
-        with patch(
-            "src.api.routes.chat.ChatService.create_completion",
-            side_effect=ProviderError(
-                message="Provider API unavailable",
-                provider="anthropic",
-                status_code=503,
-            ),
-        ):
-            payload = {
-                "model": "claude-3-sonnet",
-                "messages": [{"role": "user", "content": "Hello"}],
-            }
-            response = client.post("/v1/chat/completions", json=payload)
+        assert response.status_code == 502
+        data = response.json()
+        assert "error" in data
 
-            assert response.status_code == 502
-            data = response.json()
-            assert "error" in data
-
-    def test_provider_error_includes_error_details(self, client: TestClient):
+    def test_provider_error_includes_error_details(self, error_client: TestClient):
         """
         WBS 2.2.2.3.9: 502 response must include error details.
 
         Pattern: Error context (ANTI_PATTERN §3.1)
         """
-        from src.core.exceptions import ProviderError
+        payload = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+        response = error_client.post("/v1/chat/completions", json=payload)
 
-        with patch(
-            "src.api.routes.chat.ChatService.create_completion",
-            side_effect=ProviderError(
-                message="Rate limit exceeded",
-                provider="openai",
-                status_code=429,
-            ),
-        ):
-            payload = {
-                "model": "gpt-4",
-                "messages": [{"role": "user", "content": "Hello"}],
-            }
-            response = client.post("/v1/chat/completions", json=payload)
+        assert response.status_code == 502
+        data = response.json()
+        assert "error" in data
+        assert "message" in data["error"]
+        assert "code" in data["error"]
 
-            assert response.status_code == 502
-            data = response.json()
-            assert "error" in data
-            assert "message" in data["error"]
-            assert "code" in data["error"]
-
-    def test_provider_error_logs_exception(self, client: TestClient):
+    def test_provider_error_logs_exception(self, error_client: TestClient):
         """
         WBS 2.2.2.3.9: Provider errors must be logged for debugging.
 
         Pattern: Exception logging (ANTI_PATTERN §3.1)
         """
-        from src.core.exceptions import ProviderError
+        with patch("src.api.routes.chat.logger") as mock_logger:
+            payload = {
+                "model": "llama2",
+                "messages": [{"role": "user", "content": "Hello"}],
+            }
+            response = error_client.post("/v1/chat/completions", json=payload)
 
-        with patch(
-            "src.api.routes.chat.ChatService.create_completion",
-            side_effect=ProviderError(
-                message="Connection timeout",
-                provider="ollama",
-            ),
-        ):
-            with patch("src.api.routes.chat.logger") as mock_logger:
-                payload = {
-                    "model": "llama2",
-                    "messages": [{"role": "user", "content": "Hello"}],
-                }
-                response = client.post("/v1/chat/completions", json=payload)
-
-                assert response.status_code == 502
-                # Verify error was logged
-                mock_logger.error.assert_called()
+            assert response.status_code == 502
+            # Verify error was logged
+            mock_logger.error.assert_called()
 
 
 class TestToolCallsInResponse:
@@ -704,9 +705,16 @@ def client():
     Create test client with chat router mounted.
 
     Pattern: FakeRepository (Architecture Patterns p. 157)
+    
+    Issue 27: Uses real ChatService with FakeProvider fallback.
+    No mocking - production-ready implementation with test doubles.
     """
     from fastapi import FastAPI
     from src.api.routes.chat import router as chat_router
+    
+    # Reset the cached service to get fresh instance for each test
+    import src.api.routes.chat as chat_module
+    chat_module._chat_service = None
 
     app = FastAPI()
     app.include_router(chat_router)
@@ -715,38 +723,20 @@ def client():
 
 
 @pytest.fixture
-def mock_chat_service():
+def fake_provider():
     """
-    Mock ChatService for testing endpoint without LLM calls.
-
-    Pattern: Test doubles (Architecture Patterns p. 157)
+    Create a FakeProvider for testing.
+    
+    Pattern: FakeRepository/Test Double (GUIDELINES p. 157)
+    
+    This is NOT a mock - it's a real implementation of the LLMProvider interface
+    that provides deterministic responses for testing.
     """
-    from src.models.responses import (
-        ChatCompletionResponse,
-        Choice,
-        ChoiceMessage,
-        Usage,
+    from src.providers.fake import FakeProvider
+    
+    return FakeProvider(
+        response_content="Test response from FakeProvider"
     )
-    import time
-
-    mock_response = ChatCompletionResponse(
-        id="chatcmpl-test123",
-        object="chat.completion",
-        created=int(time.time()),
-        model="gpt-4",
-        choices=[
-            Choice(
-                index=0,
-                message=ChoiceMessage(role="assistant", content="Hello! How can I help?"),
-                finish_reason="stop",
-            )
-        ],
-        usage=Usage(prompt_tokens=10, completion_tokens=8, total_tokens=18),
-    )
-
-    with patch("src.api.routes.chat.ChatService.create_completion") as mock:
-        mock.return_value = mock_response
-        yield mock
 
 
 # =============================================================================

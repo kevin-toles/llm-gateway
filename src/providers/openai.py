@@ -47,12 +47,21 @@ from src.providers.base import LLMProvider
 
 
 SUPPORTED_MODELS = [
+    # GPT-5 variants
+    "gpt-5.2",
+    "gpt-5.2-pro",
+    "gpt-5.1",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
     # GPT-4 variants
     "gpt-4",
     "gpt-4-turbo",
     "gpt-4-turbo-preview",
     "gpt-4o",
     "gpt-4o-mini",
+    "gpt-4.1",
+    "gpt-4.1-mini",
     "gpt-4-0125-preview",
     "gpt-4-1106-preview",
     # GPT-3.5 variants
@@ -302,7 +311,7 @@ class OpenAIProvider(LLMProvider):
             return True
 
         # Check prefix match for versioned models
-        return model.startswith(("gpt-4", "gpt-3.5-turbo"))
+        return model.startswith(("gpt-5", "gpt-4", "gpt-3.5-turbo"))
 
     # =========================================================================
     # WBS 2.3.3.1.10: get_supported_models() method
@@ -448,7 +457,9 @@ class OpenAIProvider(LLMProvider):
     # Extracted to reduce cognitive complexity of _build_request_kwargs()
     # =========================================================================
 
-    def _build_optional_params(self, request: ChatCompletionRequest) -> dict[str, Any]:
+    def _build_optional_params(
+        self, request: ChatCompletionRequest, model: str | None = None
+    ) -> dict[str, Any]:
         """
         Build optional parameters dict from request.
 
@@ -456,6 +467,7 @@ class OpenAIProvider(LLMProvider):
 
         Args:
             request: The chat completion request.
+            model: The model name (for parameter name detection).
 
         Returns:
             Dict of optional parameters.
@@ -465,7 +477,12 @@ class OpenAIProvider(LLMProvider):
         if request.temperature is not None:
             params["temperature"] = request.temperature
         if request.max_tokens is not None:
-            params["max_tokens"] = request.max_tokens
+            # GPT-5.x models use max_completion_tokens instead of max_tokens
+            model_name = model or request.model
+            if model_name and model_name.startswith("gpt-5"):
+                params["max_completion_tokens"] = request.max_tokens
+            else:
+                params["max_tokens"] = request.max_tokens
         if request.top_p is not None:
             params["top_p"] = request.top_p
         if request.n is not None:

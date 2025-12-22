@@ -119,14 +119,24 @@ class Settings(BaseSettings):
     # WBS 2.1.2.1.7: Provider API Keys
     # Pattern: SecretStr for sensitive values (GUIDELINES: security validation)
     # SecretStr masks values in logs/repr, use .get_secret_value() to access
+    # 
+    # Note: validation_alias allows these to be set via standard env var names
+    # (OPENAI_API_KEY) or prefixed names (LLM_GATEWAY_OPENAI_API_KEY)
     # =========================================================================
     anthropic_api_key: SecretStr = Field(
         default=SecretStr(""),
         description="Anthropic API key for Claude models",
+        validation_alias="ANTHROPIC_API_KEY",
     )
     openai_api_key: SecretStr = Field(
         default=SecretStr(""),
         description="OpenAI API key for GPT models",
+        validation_alias="OPENAI_API_KEY",
+    )
+    openrouter_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="OpenRouter API key for Qwen and other models (POC for local LLMs)",
+        validation_alias="OPENROUTER_API_KEY",
     )
 
     # =========================================================================
