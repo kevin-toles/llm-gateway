@@ -138,6 +138,11 @@ class Settings(BaseSettings):
         description="OpenRouter API key for Qwen and other models (POC for local LLMs)",
         validation_alias="OPENROUTER_API_KEY",
     )
+    deepseek_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="DeepSeek API key for Reasoner and other models",
+        validation_alias="DEEPSEEK_API_KEY",
+    )
 
     # =========================================================================
     # WBS 2.1.2.1.8: Provider Defaults

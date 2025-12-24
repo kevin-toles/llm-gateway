@@ -204,6 +204,32 @@ class OpenAIProvider(LLMProvider):
         self._client = AsyncOpenAI(**client_kwargs)
 
     # =========================================================================
+    # WBS 2.3.3.1.10: Model Support Methods
+    # =========================================================================
+
+    def supports_model(self, model: str) -> bool:
+        """
+        Check if this provider supports the specified model.
+
+        Args:
+            model: The model identifier.
+
+        Returns:
+            True if supported, False otherwise.
+        """
+        model_lower = model.lower()
+        return any(model_lower.startswith(m.lower()) for m in SUPPORTED_MODELS)
+
+    def get_supported_models(self) -> list[str]:
+        """
+        Get the list of supported model identifiers.
+
+        Returns:
+            List of supported model identifiers.
+        """
+        return SUPPORTED_MODELS.copy()
+
+    # =========================================================================
     # WBS 2.3.3.1.5: complete() method
     # =========================================================================
 

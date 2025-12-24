@@ -51,9 +51,10 @@ class ProviderRouter:
         "llama": "ollama",
         "mistral": "ollama",
         "codellama": "ollama",
-        "deepseek": "ollama",
         "gemma": "ollama",
         "phi": "ollama",
+        # DeepSeek models (native API)
+        "deepseek": "deepseek",
         # OpenRouter models (POC for local LLMs)
         "qwen": "openrouter",
         "meta-llama": "openrouter",
@@ -213,6 +214,17 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
                 logger.info("Anthropic provider registered")
             except Exception as e:
                 logger.warning(f"Could not initialize Anthropic provider: {e}")
+
+    # DeepSeek - for Reasoner and other models
+    if settings.deepseek_api_key is not None:
+        deepseek_key = settings.deepseek_api_key.get_secret_value()
+        if deepseek_key:
+            try:
+                from src.providers.deepseek import DeepSeekProvider
+                providers["deepseek"] = DeepSeekProvider(api_key=deepseek_key)
+                logger.info("DeepSeek provider registered (Reasoner)")
+            except Exception as e:
+                logger.warning(f"Could not initialize DeepSeek provider: {e}")
 
     # Log available providers
     provider_names = list(providers.keys())
