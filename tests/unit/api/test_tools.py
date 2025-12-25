@@ -13,8 +13,14 @@ Anti-Patterns Avoided:
 - ANTI_PATTERN_ANALYSIS §1.1: Optional types with explicit None
 - ANTI_PATTERN_ANALYSIS §3.1: No bare except clauses
 - ANTI_PATTERN_ANALYSIS §4.1: Cognitive complexity < 15 per function
+
+SonarQube Issues Addressed (December 2025):
+- Issue 42 (python:S7503): echo_tool must be sync function (no await used)
+- Issue 43 (python:S7503): calculator_tool must be sync function (no await used)
+- Issue 44 (python:S1066): _validate_arguments merged nested if statements
 """
 
+import inspect
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
@@ -258,43 +264,46 @@ class TestToolExecuteEndpoint:
 class TestCalculatorTool:
     """Test suite for calculator tool - Issue 39"""
 
-    @pytest.mark.asyncio
-    async def test_calculator_division_by_zero_raises_value_error(self):
+    def test_calculator_division_by_zero_raises_value_error(self):
         """
         Issue 39: Calculator tool should raise ValueError for division by zero.
         
         Division by zero is an error condition, not a valid result.
         Returning float("inf") hides the error and can cause downstream issues.
+        
+        Note: calculator_tool is now synchronous (Issue 43 fix - python:S7503)
         """
         from src.api.routes.tools import calculator_tool
         
         with pytest.raises(ValueError) as exc_info:
-            await calculator_tool(a=10.0, b=0.0, operation="divide")
+            calculator_tool(a=10.0, b=0.0, operation="divide")
         
         assert "division by zero" in str(exc_info.value).lower()
 
-    @pytest.mark.asyncio
-    async def test_calculator_normal_division_works(self):
+    def test_calculator_normal_division_works(self):
         """
         Calculator tool should perform normal division correctly.
+        
+        Note: calculator_tool is now synchronous (Issue 43 fix - python:S7503)
         """
         from src.api.routes.tools import calculator_tool
         
-        result = await calculator_tool(a=10.0, b=2.0, operation="divide")
+        result = calculator_tool(a=10.0, b=2.0, operation="divide")
         
-        assert result["result"] == 5.0
+        assert result["result"] == pytest.approx(5.0)
         assert result["operation"] == "divide"
 
-    @pytest.mark.asyncio
-    async def test_calculator_addition_works(self):
+    def test_calculator_addition_works(self):
         """
         Calculator tool should perform addition correctly.
+        
+        Note: calculator_tool is now synchronous (Issue 43 fix - python:S7503)
         """
         from src.api.routes.tools import calculator_tool
         
-        result = await calculator_tool(a=3.0, b=4.0, operation="add")
+        result = calculator_tool(a=3.0, b=4.0, operation="add")
         
-        assert result["result"] == 7.0
+        assert result["result"] == pytest.approx(7.0)
         assert result["operation"] == "add"
 
 
@@ -410,3 +419,190 @@ def client():
     app.include_router(tools_router)
 
     return TestClient(app)
+
+
+# =============================================================================
+# SonarQube Code Quality Tests - Issues 42-44
+# Validates fixes for python:S7503 (unnecessary async) and python:S1066 (nested if)
+# =============================================================================
+
+
+class TestSonarQubeCodeQualityFixes:
+    """
+    Tests validating SonarQube code smell fixes.
+    
+    Reference: Comp_Static_Analysis_Report_20251203.md Issues 42-44
+    - Issue 42: echo_tool should be sync (no await)
+    - Issue 43: calculator_tool should be sync (no await)
+    - Issue 44: _validate_arguments should merge nested if statements
+    """
+
+    def test_echo_tool_is_synchronous_function(self):
+        """
+        Issue 42 (python:S7503): echo_tool must be a regular sync function.
+        
+        Rationale: Function contains no await expressions, so async keyword
+        is misleading and adds unnecessary coroutine overhead.
+        
+        Reference: GUIDELINES pp. 466, 618 - async/await only when awaiting
+        """
+        from src.api.routes.tools import echo_tool
+        
+        # Verify it's not a coroutine function
+        assert not inspect.iscoroutinefunction(echo_tool), \
+            "echo_tool should be sync (not async) - no await expressions used"
+        
+        # Verify it can be called synchronously
+        result = echo_tool("test message")
+        assert result == {"echoed": "test message"}
+
+    def test_calculator_tool_is_synchronous_function(self):
+        """
+        Issue 43 (python:S7503): calculator_tool must be a regular sync function.
+        
+        Rationale: Function performs pure computation with no I/O,
+        async keyword adds unnecessary overhead.
+        
+        Reference: GUIDELINES pp. 466, 618 - async/await only when awaiting
+        """
+        from src.api.routes.tools import calculator_tool
+        
+        # Verify it's not a coroutine function
+        assert not inspect.iscoroutinefunction(calculator_tool), \
+            "calculator_tool should be sync (not async) - no await expressions used"
+        
+        # Verify it can be called synchronously
+        result = calculator_tool(5, 3, "add")
+        assert result["result"] == 8  # Calculator returns additional metadata
+
+    def test_validate_arguments_type_check_merged_conditional(self):
+        """
+        Issue 44 (python:S1066): validate_arguments uses merged if statement.
+        
+        Verifies the fix: `if expected_type and not self._check_type(...)` 
+        instead of nested `if expected_type: if not self._check_type(...)`
+        
+        Reference: CODING_PATTERNS_ANALYSIS Anti-Pattern 2.1 - nested conditionals
+        """
+        from src.models.tools import ToolDefinition
+        
+        # Test that validation correctly handles type checking in single pass
+        executor = ToolExecutorService()
+        
+        # Create a tool definition with type constraint
+        definition = ToolDefinition(
+            name="test_tool",
+            description="Test tool for validation",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "value": {"type": "number"}
+                },
+                "required": ["value"]
+            }
+        )
+        
+        # Valid type should pass
+        valid, error = executor.validate_arguments(definition, {"value": 42})
+        assert valid is True
+        assert error is None
+        
+        # Invalid type should fail with clear message
+        valid, error = executor.validate_arguments(definition, {"value": "not a number"})
+        assert valid is False
+        assert "expected number" in error
+
+    def test_validate_arguments_handles_missing_type_gracefully(self):
+        """
+        Issue 44: Merged conditional handles None type correctly.
+        
+        When expected_type is None/missing, the merged `if expected_type and ...`
+        short-circuits without calling _check_type.
+        """
+        from src.models.tools import ToolDefinition
+        
+        executor = ToolExecutorService()
+        
+        # Create tool definition without type constraint (type is missing)
+        definition = ToolDefinition(
+            name="test_tool",
+            description="Test tool for validation",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "value": {}  # No type specified
+                }
+            }
+        )
+        
+        # Should pass regardless of value type
+        valid, error = executor.validate_arguments(definition, {"value": "anything"})
+        assert valid is True
+        assert error is None
+        
+        valid, error = executor.validate_arguments(definition, {"value": 123})
+        assert valid is True
+        assert error is None
+
+
+# =============================================================================
+# SonarQube Code Quality Fixes - Batch 6 (Issue 46)
+# =============================================================================
+
+
+class TestSonarQubeCodeQualityFixesBatch6:
+    """
+    TDD RED Phase: Tests for SonarQube code smell fixes - Batch 6.
+    
+    Issue 46: tools.py:186 - Fix the syntax of this issue suppression comment
+    Rule: python:S1134 - Suppression comments must use correct syntax
+    
+    Reference: CODING_PATTERNS_ANALYSIS.md Anti-Pattern 4.2
+    Pattern: Use standard # noqa: CODE or # type: ignore[code] syntax
+    """
+
+    def test_tools_noqa_comments_have_valid_syntax(self) -> None:
+        """
+        Issue 46 (S1134): All noqa comments should have valid syntax.
+        
+        SonarQube expects specific suppression comment formats.
+        Ruff/flake8 noqa comments are not recognized by SonarQube.
+        
+        Valid formats:
+        - # noqa: A002  (Ruff/flake8 - valid for those tools)
+        - # NOSONAR  (SonarQube suppression)
+        - # type: ignore[error-code]  (mypy)
+        
+        The issue is that SonarQube is flagging line 186 because it sees
+        a suppression comment it doesn't understand. We need to ensure
+        SonarQube doesn't try to parse Ruff comments as SonarQube comments.
+        """
+        import re
+        import inspect
+        from src.api.routes import tools
+        
+        source = inspect.getsource(tools)
+        
+        # Check for malformed suppression comments that SonarQube might misinterpret
+        # Valid: # noqa: CODE - explanation
+        # Invalid: # noqa - explanation (without colon and code)
+        
+        lines = source.split('\n')
+        invalid_noqa_lines = []
+        
+        for i, line in enumerate(lines, 1):
+            # Check for noqa without code after it (which is invalid)
+            if re.search(r'#\s*noqa\s*$', line, re.IGNORECASE):
+                invalid_noqa_lines.append(i)
+            # Check for noqa followed by text but no colon
+            elif re.search(r'#\s*noqa\s+[^:]', line, re.IGNORECASE):
+                # This could be valid like "# noqa: A002 - explanation"
+                # But invalid if no colon at all
+                if ':' not in line.split('noqa')[1].split()[0] if 'noqa' in line.lower() else False:
+                    invalid_noqa_lines.append(i)
+        
+        assert len(invalid_noqa_lines) == 0, (
+            f"Found invalid noqa comment syntax at lines: {invalid_noqa_lines}. "
+            "Use format: # noqa: CODE - explanation"
+        )
+

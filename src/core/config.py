@@ -90,17 +90,58 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # WBS 3.2.3.2: Timeout Configuration
+    # =========================================================================
+    semantic_search_timeout_seconds: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=300.0,
+        description="Timeout in seconds for semantic search service calls",
+    )
+
+    # =========================================================================
+    # WBS 3.2.3.1: Circuit Breaker Configuration
+    # =========================================================================
+    circuit_breaker_failure_threshold: int = Field(
+        default=5,
+        ge=1,
+        le=100,
+        description="Number of consecutive failures before circuit opens",
+    )
+    circuit_breaker_recovery_timeout_seconds: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=600.0,
+        description="Seconds to wait before attempting circuit recovery",
+    )
+
+    # =========================================================================
     # WBS 2.1.2.1.7: Provider API Keys
     # Pattern: SecretStr for sensitive values (GUIDELINES: security validation)
     # SecretStr masks values in logs/repr, use .get_secret_value() to access
+    # 
+    # Note: validation_alias allows these to be set via standard env var names
+    # (OPENAI_API_KEY) or prefixed names (LLM_GATEWAY_OPENAI_API_KEY)
     # =========================================================================
     anthropic_api_key: SecretStr = Field(
         default=SecretStr(""),
         description="Anthropic API key for Claude models",
+        validation_alias="ANTHROPIC_API_KEY",
     )
     openai_api_key: SecretStr = Field(
         default=SecretStr(""),
         description="OpenAI API key for GPT models",
+        validation_alias="OPENAI_API_KEY",
+    )
+    openrouter_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="OpenRouter API key for Qwen and other models (POC for local LLMs)",
+        validation_alias="OPENROUTER_API_KEY",
+    )
+    deepseek_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="DeepSeek API key for Reasoner and other models",
+        validation_alias="DEEPSEEK_API_KEY",
     )
 
     # =========================================================================

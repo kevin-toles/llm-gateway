@@ -50,11 +50,22 @@ This document maps the integration points between all four repositories in the L
 │   │ semantic-search       │    │ External LLM Providers  │    │ ai-agents             ││
 │   │ (Port 8081)           │    │                         │    │ (Port 8082)           ││
 │   │                       │    │ • Anthropic             │    │                       ││
-│   │ • SBERT embeddings    │    │ • OpenAI                │    │ • Code Review Agent   ││
-│   │ • FAISS vector search │    │ • Ollama (local)        │    │ • Architecture Agent  ││
-│   │ • Gensim topics       │    │                         │    │ • Doc Generate Agent  ││
-│   │                       │    │                         │    │                       ││
-│   └───────────────────────┘    └─────────────────────────┘    └───────────────────────┘│
+│   │ • SBERT embeddings    │    │ • OpenAI                │    │ • Cross-Reference     ││
+│   │ • Qdrant vector search│    │ • Ollama (local)        │    │ • Code Review Agent   ││
+│   │ • Hybrid graph search │    │                         │    │ • Architecture Agent  ││
+│   │                       │    │                         │    │ • Doc Generate Agent  ││
+│   └──────────┬────────────┘    └─────────────────────────┘    └───────────┬───────────┘│
+│              │                                                            │            │
+│              └──────────────────────┬─────────────────────────────────────┘            │
+│                                     ▼                                                  │
+│                          ┌───────────────────────┐                                     │
+│                          │       Neo4j           │                                     │
+│                          │    (Port 7687)        │                                     │
+│                          │                       │                                     │
+│                          │ • Taxonomy graph      │                                     │
+│                          │ • Tier relationships  │                                     │
+│                          │ • Spider web traversal│                                     │
+│                          └───────────────────────┘                                     │
 │                                                                                         │
 └───────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -105,12 +116,13 @@ This document maps the integration points between all four repositories in the L
 │   │   │   semantic-search-service   │    │         ai-agents               │     │  │
 │   │   │        (Port 8081)          │    │        (Port 8082)              │     │  │
 │   │   │                             │    │                                 │     │  │
-│   │   │  • SBERT embeddings (local) │    │  • Code Review Agent           │     │  │
-│   │   │  • FAISS vector search      │    │  • Architecture Agent          │     │  │
-│   │   │  • Topic modeling           │    │  • Doc Generate Agent          │     │  │
-│   │   │                             │    │                                 │     │  │
-│   │   │  ❌ NO direct LLM calls     │    │  ❌ NO direct LLM calls        │     │  │
-│   │   │     (SBERT ≠ LLM API)       │    │  ✅ Calls BACK to llm-gateway  │     │  │
+│   │   │  • SBERT embeddings (local) │    │  • Cross-Reference Agent  │     │  │
+│   │   │  • Qdrant vector search     │    │  • Code Review Agent      │     │  │
+│   │   │  • Graph traversal (Neo4j)  │    │  • Architecture Agent     │     │  │
+│   │   │                             │    │  • Doc Generate Agent     │     │  │
+│   │   │  ❌ NO direct LLM calls     │    │                                 │     │  │
+│   │   │     (SBERT ≠ LLM API)       │    │  ❌ NO direct LLM calls        │     │  │
+│   │   │                             │    │  ✅ Calls BACK to llm-gateway  │     │  │
 │   │   │                             │    │     if LLM reasoning needed    │     │  │
 │   │   └─────────────────────────────┘    └─────────────────────────────────┘     │  │
 │   │                                                                               │  │
@@ -138,9 +150,23 @@ This document maps the integration points between all four repositories in the L
 | Repository | Type | Port | Purpose | Talks to LLMs? |
 |------------|------|------|---------|----------------|
 | `llm-gateway` | Microservice | 8080 | LLM provider abstraction, tool-use, sessions | ✅ **YES** (only one) |
-| `semantic-search-service` | Microservice | 8081 | Embeddings, vector search, topic modeling | ❌ No (SBERT is local) |
-| `ai-agents` | Microservice | 8082 | Specialized AI agents (code review, architecture) | ❌ No (calls gateway) |
+| `semantic-search-service` | Microservice | 8081 | Embeddings, vector search, graph traversal | ❌ No (SBERT is local) |
+| `ai-agents` | Microservice | 8082 | Specialized AI agents (cross-reference, code review, architecture) | ❌ No (calls gateway) |
 | `llm-document-enhancer` | Application | N/A | Batch job consuming the above services | ❌ No (calls gateway) |
+| `Neo4j` | Database | 7687 | Taxonomy graph, tier relationships, spider web traversal | ❌ No |
+
+---
+
+## Future Consumers (Unified Platform)
+
+The microservice architecture is designed to support multiple consumers beyond the initial batch processing use case:
+
+| Consumer | Type | Use Case |
+|----------|------|----------|
+| llm-document-enhancer | Batch | Process technical documents into cross-referenced guidelines |
+| VS Code Copilot | Interactive | Real-time code assistance with taxonomy awareness |
+| CI/CD Pipelines | Automated | Code review and architecture validation |
+| IDE Extensions | Real-time | Context-aware suggestions and documentation |
 
 ---
 
@@ -290,11 +316,14 @@ POST /v1/agents/doc-generate/run
 | From | To | Protocol | Purpose |
 |------|----|----------|---------|
 | llm-document-enhancer | llm-gateway | HTTP | LLM inference (3-step enhancement) |
-| llm-document-enhancer | semantic-search | HTTP | Embed, search, topics |
-| llm-document-enhancer | ai-agents | HTTP | Code review (optional) |
+| llm-document-enhancer | semantic-search | HTTP | Embed, search, hybrid search |
+| llm-document-enhancer | ai-agents | HTTP | Cross-reference, code review |
 | llm-gateway | semantic-search | HTTP | Tool execution (search_corpus) |
-| llm-gateway | ai-agents | HTTP | Tool execution (review_code) |
+| llm-gateway | ai-agents | HTTP | Tool execution (cross_reference, review_code) |
 | llm-gateway | Anthropic/OpenAI/Ollama | HTTP | LLM provider calls |
+| semantic-search | Neo4j | Bolt | Graph queries, traversal |
+| ai-agents | Neo4j | Bolt | Taxonomy traversal |
+| ai-agents | llm-gateway | HTTP | LLM reasoning for agents |
 
 ---
 
@@ -365,7 +394,10 @@ LLM_GATEWAY_OLLAMA_URL=http://localhost:11434
 ```bash
 SEMANTIC_SEARCH_PORT=8081
 SEMANTIC_SEARCH_MODEL=all-MiniLM-L6-v2
-SEMANTIC_SEARCH_FAISS_INDEX_PATH=/data/indices
+SEMANTIC_SEARCH_QDRANT_URL=http://localhost:6333
+NEO4J_URL=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=...
 ```
 
 ### ai-agents
@@ -373,6 +405,10 @@ SEMANTIC_SEARCH_FAISS_INDEX_PATH=/data/indices
 AI_AGENTS_PORT=8082
 # Agents call BACK to llm-gateway when they need LLM reasoning
 AI_AGENTS_LLM_GATEWAY_URL=http://llm-gateway:8080
+AI_AGENTS_SEMANTIC_SEARCH_URL=http://semantic-search:8081
+NEO4J_URL=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=...
 ```
 
 ---
@@ -389,6 +425,16 @@ services:
     ports:
       - "6379:6379"
 
+  neo4j:
+    image: neo4j:5-community
+    ports:
+      - "7474:7474"  # Browser UI
+      - "7687:7687"  # Bolt protocol
+    volumes:
+      - neo4j-data:/data
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+
   # Microservices
   semantic-search:
     build: ../semantic-search-service
@@ -396,8 +442,12 @@ services:
       - "8081:8081"
     environment:
       - SEMANTIC_SEARCH_PORT=8081
+      - NEO4J_URL=bolt://neo4j:7687
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
     volumes:
       - semantic-data:/data
+    depends_on:
+      - neo4j
 
   llm-gateway:
     build: .
@@ -419,11 +469,16 @@ services:
     environment:
       - AI_AGENTS_PORT=8082
       - AI_AGENTS_LLM_GATEWAY_URL=http://llm-gateway:8080
+      - AI_AGENTS_SEMANTIC_SEARCH_URL=http://semantic-search:8081
+      - NEO4J_URL=bolt://neo4j:7687
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
     depends_on:
       - llm-gateway
+      - neo4j
 
 volumes:
   semantic-data:
+  neo4j-data:
 ```
 
 ---

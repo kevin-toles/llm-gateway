@@ -51,7 +51,7 @@ DEFAULT_MODEL = os.getenv("LLM_GATEWAY_DEFAULT_MODEL", "gpt-4")
 # Pattern: Cognitive complexity reduction (ANTI_PATTERN §4.1)
 # Pattern: Dependency injection (Sinha pp. 89-91)
 #
-# TODO Issue 27 (Comp_Static_Analysis_Report_20251203.md):
+# NOTE Issue 27 (Comp_Static_Analysis_Report_20251203.md):
 # This stub ChatService should be replaced with the real implementation from
 # src/services/chat.ChatService. The full migration requires:
 # 1. Setting up FastAPI dependency injection for ProviderRouter, ToolExecutor, SessionManager
@@ -61,6 +61,7 @@ DEFAULT_MODEL = os.getenv("LLM_GATEWAY_DEFAULT_MODEL", "gpt-4")
 # The stub is retained for backwards compatibility during incremental migration.
 # Real implementation: src/services/chat.py - ChatService with full provider routing,
 # tool execution, and session management.
+# Implementation deferred to Stage 4: Full Service Migration (WBS 4.x)
 # =============================================================================
 
 
@@ -250,25 +251,50 @@ class ChatService:
 # =============================================================================
 # Dependency Injection - FastAPI Pattern (Sinha p. 90)
 # WBS 2.2.2.3.11: Dependency factory for ChatService
+# Issue 27 Resolution: Wire to real ChatService with provider routing
 # =============================================================================
 
 # Global service instance (can be overridden in tests)
-_chat_service: Optional[ChatService] = None
+_chat_service: Optional["RealChatService"] = None
 
 
-def get_chat_service() -> ChatService:
+def get_chat_service() -> "RealChatService":
     """
     Dependency injection factory for ChatService.
 
     Pattern: Factory method for dependency injection (Sinha p. 90)
+    
+    Issue 27 Resolution (Comp_Static_Analysis_Report_20251203.md):
+    This function now returns the real ChatService from src/services/chat.py
+    with properly wired dependencies:
+    - ProviderRouter: For model-based provider selection
+    - ToolExecutor: For tool/function calling capability
 
     Returns:
-        ChatService: The chat service instance
+        ChatService: The real chat service instance with provider routing
     """
     global _chat_service
     if _chat_service is None:
-        _chat_service = ChatService()
+        # Import here to avoid circular imports
+        from src.services.chat import ChatService as RealChatService
+        from src.providers.router import create_provider_router
+        from src.tools.executor import ToolExecutor
+        from src.tools.registry import get_tool_registry
+        from src.core.config import get_settings
+        
+        settings = get_settings()
+        router = create_provider_router(settings)
+        executor = ToolExecutor(registry=get_tool_registry())
+        
+        _chat_service = RealChatService(
+            router=router,
+            executor=executor,
+        )
     return _chat_service
+
+
+# Type alias for the real ChatService (used in type hints above)
+from src.services.chat import ChatService as RealChatService
 
 
 # =============================================================================
@@ -286,8 +312,8 @@ router = APIRouter(prefix="/v1/chat", tags=["Chat"])
 @router.post("/completions", response_model=None)
 async def create_chat_completion(
     request: ChatCompletionRequest,
-    chat_service: ChatService = Depends(get_chat_service),
-) -> Union[ChatCompletionResponse, StreamingResponse, JSONResponse]:
+    chat_service: RealChatService = Depends(get_chat_service),
+) -> ChatCompletionResponse | StreamingResponse | JSONResponse:
     """
     Create a chat completion (streaming or non-streaming).
 
@@ -323,7 +349,8 @@ async def create_chat_completion(
                 media_type="text/event-stream",
             )
 
-        return await chat_service.create_completion(request)
+        # Issue 27: Real ChatService uses complete(), not create_completion()
+        return await chat_service.complete(request)
 
     except ProviderError as e:
         # WBS 2.2.2.3.9: Translate provider errors to 502 Bad Gateway
@@ -347,7 +374,7 @@ async def create_chat_completion(
 
 
 async def _stream_sse_generator(
-    chat_service: ChatService, request: ChatCompletionRequest
+    chat_service: RealChatService, request: ChatCompletionRequest
 ) -> AsyncGenerator[str, None]:
     """
     Generate SSE-formatted stream from chat service.

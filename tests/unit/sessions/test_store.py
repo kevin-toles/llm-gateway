@@ -104,7 +104,8 @@ class TestSessionStoreClass:
 
         store = SessionStore(redis_client=fake_redis)
 
-        assert store is not None
+        # Verify store is proper instance (not just 'is not None')
+        assert isinstance(store, SessionStore)
 
     @pytest.mark.asyncio
     async def test_session_store_accepts_redis_client(self, fake_redis) -> None:
@@ -498,7 +499,7 @@ class TestSessionStoreImportable:
         """SessionStore is importable from src.sessions."""
         from src.sessions import SessionStore
 
-        assert SessionStore is not None
+        assert issubclass(SessionStore, object)
 
     def test_session_store_error_importable_from_sessions(self) -> None:
         """SessionStoreError is importable from src.sessions."""

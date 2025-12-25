@@ -8,9 +8,11 @@ Reference Documents:
 - ARCHITECTURE.md Line 53: chunk_retrieval.py "Document chunk retrieval"
 - ARCHITECTURE.md Line 232: semantic-search-service dependency
 - GUIDELINES pp. 1440: Async retrieval pipelines
+- WBS 3.2.3: Error handling and resilience with circuit breaker
 
 Pattern: Service Proxy (proxies to external microservice)
 Pattern: Async HTTP client for non-blocking calls
+Pattern: Circuit Breaker for resilience (Newman pp. 357-358)
 """
 
 import logging
@@ -18,10 +20,28 @@ from typing import Any
 
 import httpx
 
+from src.clients.circuit_breaker import CircuitOpenError
 from src.core.config import get_settings
 from src.models.domain import ToolDefinition
+# WBS 3.2.3.1.5: Share circuit breaker with semantic_search.py
+from src.tools.builtin.semantic_search import get_semantic_search_circuit_breaker
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# WBS 3.2.3.1.5: Shared circuit breaker getter (alias for consistency)
+# =============================================================================
+
+
+def get_chunk_circuit_breaker():
+    """
+    Get the circuit breaker for chunk retrieval.
+    
+    WBS 3.2.3.1.5: Uses the same circuit breaker as search_corpus
+    since both use the semantic-search-service.
+    """
+    return get_semantic_search_circuit_breaker()
 
 
 # =============================================================================
@@ -68,7 +88,26 @@ GET_CHUNK_DEFINITION = ToolDefinition(
 
 # =============================================================================
 # WBS 2.4.3.2.2: get_chunk Tool Function
+# WBS 3.2.3: Integrated with circuit breaker and configurable timeout
 # =============================================================================
+
+
+async def _do_get_chunk(
+    base_url: str,
+    chunk_id: str,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    """
+    Internal function to perform the actual HTTP chunk retrieval.
+    
+    Separated for circuit breaker wrapping.
+    """
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+        response = await client.get(
+            f"{base_url}/v1/chunks/{chunk_id}",
+        )
+        response.raise_for_status()
+        return response.json()
 
 
 async def get_chunk(args: dict[str, Any]) -> dict[str, Any]:
@@ -80,6 +119,8 @@ async def get_chunk(args: dict[str, Any]) -> dict[str, Any]:
     WBS 2.4.3.2.4: Call semantic-search-service to retrieve chunk.
     WBS 2.4.3.2.5: Return chunk text and metadata.
     WBS 2.4.3.2.6: Handle not found errors.
+    WBS 3.2.3.1: Circuit breaker integration for resilience.
+    WBS 3.2.3.2: Configurable timeout from settings.
 
     Args:
         args: Dictionary containing:
@@ -94,9 +135,12 @@ async def get_chunk(args: dict[str, Any]) -> dict[str, Any]:
     Raises:
         ChunkNotFoundError: If the chunk is not found.
         ChunkServiceError: If the service is unavailable.
+        CircuitOpenError: If the circuit breaker is open (service failing).
     """
     settings = get_settings()
     base_url = settings.semantic_search_url
+    timeout_seconds = settings.semantic_search_timeout_seconds
+    circuit_breaker = get_chunk_circuit_breaker()
 
     chunk_id = args.get("chunk_id", "")
 
@@ -106,12 +150,26 @@ async def get_chunk(args: dict[str, Any]) -> dict[str, Any]:
     logger.debug(f"Retrieving chunk: {chunk_id}")
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{base_url}/v1/chunks/{chunk_id}",
-            )
-            response.raise_for_status()
-            return response.json()
+        # WBS 3.2.3.1: Use circuit breaker for resilience
+        result = await circuit_breaker.call(
+            _do_get_chunk,
+            base_url,
+            chunk_id,
+            timeout_seconds,
+        )
+        return result
+
+    except CircuitOpenError as e:
+        logger.warning(f"Circuit breaker open for semantic-search-service: {e}")
+        raise ChunkServiceError(
+            "Chunk service circuit open - failing fast"
+        ) from e
+
+    except httpx.TimeoutException as e:
+        logger.error(f"Chunk service timeout after {timeout_seconds}s: {e}")
+        raise ChunkServiceError(
+            f"Chunk service timeout after {timeout_seconds} seconds"
+        ) from e
 
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:

@@ -47,17 +47,21 @@ from prometheus_client import (
 # Issue 17 Fix: Path Normalization (High Cardinality Prevention)
 # =============================================================================
 
+# Issue 50 (python:S1192): Define constant for duplicated '/{id}' literal
+# This placeholder is used in all path normalization patterns
+_PATH_ID_PLACEHOLDER = "/{id}"
+
 # Regex patterns for dynamic path segments that cause high cardinality
 # Order matters: more specific patterns first
 _PATH_PATTERNS = [
     # UUID v4: 8-4-4-4-12 hex pattern (e.g., 123e4567-e89b-12d3-a456-426614174000)
-    (re.compile(r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"), "/{id}"),
+    (re.compile(r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"), _PATH_ID_PLACEHOLDER),
     # MongoDB ObjectId: 24 hex chars (e.g., 507f1f77bcf86cd799439011)
-    (re.compile(r"/[0-9a-fA-F]{24}(?=/|$)"), "/{id}"),
+    (re.compile(r"/[0-9a-fA-F]{24}(?=/|$)"), _PATH_ID_PLACEHOLDER),
     # Generic hex ID: 8+ hex chars (but not at start to avoid short strings)
-    (re.compile(r"/[0-9a-fA-F]{8,}(?=/|$)"), "/{id}"),
+    (re.compile(r"/[0-9a-fA-F]{8,}(?=/|$)"), _PATH_ID_PLACEHOLDER),
     # Numeric ID: pure digits (e.g., /users/12345)
-    (re.compile(r"/\d+(?=/|$)"), "/{id}"),
+    (re.compile(r"/\d+(?=/|$)"), _PATH_ID_PLACEHOLDER),
 ]
 
 

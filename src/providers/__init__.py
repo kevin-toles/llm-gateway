@@ -23,6 +23,7 @@ from src.providers.openai import (
     OpenAIProvider,
     OpenAIToolHandler,
 )
+from src.providers.openrouter import OpenRouterProvider
 from src.core.exceptions import (
     ProviderError,
     RateLimitError,
@@ -44,6 +45,7 @@ __all__ = [
     "AnthropicToolHandler",
     "OpenAIProvider",
     "OpenAIToolHandler",
+    "OpenRouterProvider",
     "ProviderError",
     "RateLimitError",
     "AuthenticationError",

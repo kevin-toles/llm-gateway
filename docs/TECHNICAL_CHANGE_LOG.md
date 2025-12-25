@@ -18,6 +18,1083 @@ This document tracks all implementation changes, their rationale, and git commit
 
 ---
 
+## 2025-12-19
+
+### CL-034: Gateway-First Communication Pattern Documentation
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-19 |
+| **WBS Item** | Architecture Documentation |
+| **Change Type** | Documentation |
+| **Summary** | Added Gateway-First Communication Pattern section to ARCHITECTURE.md. External applications MUST route through Gateway:8080. |
+| **Files Changed** | `docs/ARCHITECTURE.md` |
+| **Rationale** | Explicitly document that Gateway is the single entry point for all external applications. Internal platform services may communicate directly. |
+| **Git Commit** | Pending |
+
+**Communication Pattern:**
+
+| Source | Target | Route | Status |
+|--------|--------|-------|--------|
+| External app (llm-document-enhancer) | ai-agents | Via Gateway:8080 | ✅ REQUIRED |
+| External app (VS Code extension) | any service | Via Gateway:8080 | ✅ REQUIRED |
+| Platform service (ai-agents) | audit-service | Direct:8084 | ✅ Allowed |
+| Platform service (ai-agents) | Code-Orchestrator | Direct:8083 | ✅ Allowed |
+
+**Architecture Compliance**:
+- ✅ Gateway is single entry point for external access
+- ✅ Platform services communicate directly for efficiency
+- ✅ Centralized security, rate-limiting, and observability at Gateway
+
+---
+
+## 2025-12-18
+
+### CL-033: EEP-6 Diagram Similarity - Gateway Impact Assessment
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-18 |
+| **WBS Item** | ENHANCED_ENRICHMENT_PIPELINE_WBS.md - Phase EEP-6 |
+| **Change Type** | Documentation |
+| **Summary** | EEP-6 Diagram Similarity implemented in Code-Orchestrator-Service. Gateway may route diagram analysis requests in future. |
+| **Files Changed** | `docs/TECHNICAL_CHANGE_LOG.md` |
+| **Rationale** | Document potential tool routing extensions |
+| **Git Commit** | N/A (documentation only) |
+
+**Gateway Role in EEP-6:**
+
+The LLM Gateway maintains its **Router** role in the Kitchen Brigade. EEP-6 diagram similarity is hosted in Code-Orchestrator-Service (Sous Chef). Future tool routing may include:
+
+| Tool | Route Target | Status |
+|------|--------------|--------|
+| `analyze_diagram` | Code-Orchestrator `/api/v1/diagrams/extract` | Future |
+| `find_similar_diagrams` | Code-Orchestrator `/api/v1/diagrams/similar` | Future |
+
+**No Code Changes Required**: EEP-6 is self-contained in Code-Orchestrator-Service.
+
+**Architecture Compliance**:
+- ✅ Gateway remains pass-through for ML operations
+- ✅ Code-Orchestrator-Service handles all diagram analysis
+- ✅ No duplication of SBERT infrastructure
+
+**Deviations from Original Architecture**: None
+
+---
+
+## 2025-12-13
+
+### CL-032: Enrichment Scalability - Transparent Pass-Through
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-13 |
+| **WBS Item** | Phase 3.7 - Incremental/Delta Enrichment Pipeline |
+| **Change Type** | Architecture |
+| **Summary** | Gateway remains a transparent pass-through for enriched data filtering |
+| **Files Changed** | `docs/ARCHITECTURE.md`, `docs/TECHNICAL_CHANGE_LOG.md` |
+| **Rationale** | Support scalable enrichment without gateway logic changes |
+| **Git Commit** | Pending |
+
+**Key Insight:**
+
+The LLM Gateway is NOT affected by the enrichment scalability changes. As the **Router** in the Kitchen Brigade model, it:
+- Passes taxonomy parameters to downstream services
+- Does NOT interpret or filter enriched data
+- Does NOT cache enriched results (that's semantic-search-service's responsibility)
+
+**No Changes Required:**
+
+| Aspect | Status |
+|--------|--------|
+| Tool routing | ✅ Already passes `taxonomy` param |
+| Session context | ✅ Already stores `taxonomy` in session |
+| Similar chapters requests | ✅ Proxied to semantic-search-service |
+| Enriched data filtering | N/A - semantic-search-service handles |
+
+**Architecture Compliance:**
+
+```
+LLM Gateway (Router) - PASS-THROUGH
+    ↓ taxonomy param
+Semantic Search Service (Cookbook) - FILTERS similar_chapters
+    ↓ filtered results
+LLM Gateway - RETURNS results unchanged
+```
+
+The "compute once, filter at query-time" pattern is fully implemented in semantic-search-service. Gateway requires no code changes.
+
+---
+
+### CL-031: Taxonomy-Aware Tool Routing
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-13 |
+| **WBS Item** | Phase 3.6 - Taxonomy Registry & Query-Time Resolution |
+| **Change Type** | Architecture |
+| **Summary** | Gateway now passes taxonomy context to downstream services |
+| **Files Changed** | `docs/ARCHITECTURE.md` |
+| **Rationale** | Support taxonomy as query-time overlay across all services |
+| **Git Commit** | Pending |
+
+**Key Changes:**
+
+| Aspect | Description |
+|--------|-------------|
+| **Tool Routing** | Gateway passes `taxonomy` param to semantic-search-service |
+| **Session Context** | Sessions can store default taxonomy for all tool calls |
+| **Tool-Use Orchestrator** | Now includes taxonomy context when proxying to downstream services |
+
+**Session Taxonomy Context:**
+
+```json
+POST /v1/sessions
+{
+  "context": {
+    "taxonomy": "AI-ML_taxonomy",
+    "tier_filter": [1, 2, 3]
+  }
+}
+```
+
+**Tool Proxy Flow:**
+```
+User: "Search for auth patterns, use Security taxonomy"
+  ↓
+LLM Gateway extracts taxonomy from context
+  ↓
+POST http://semantic-search-service:8081/v1/search/hybrid
+{
+  "query": "auth patterns",
+  "taxonomy": "Security_taxonomy"  ← Passed from user context
+}
+  ↓
+Results returned with tier/priority from Security taxonomy
+```
+
+**Benefits:**
+- Users can say "use Security taxonomy" once, applies to all searches in session
+- Gateway is transparent pass-through for taxonomy (no re-seeding logic)
+- Downstream services handle taxonomy loading from ai-platform-data
+
+---
+
+## 2025-12-09
+
+### CL-030: WBS 0.1.1 - Integration Profile Cross-Reference
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-09 |
+| **WBS Item** | 0.1.1 - Create Unified Docker Compose |
+| **Change Type** | Documentation |
+| **Summary** | Cross-reference to new integration profile in llm-document-enhancer |
+| **Files Changed** | `docs/TECHNICAL_CHANGE_LOG.md` |
+| **Rationale** | Track integration profile that orchestrates this service for testing |
+| **Git Commit** | Pending |
+
+**Integration Profile Location:**
+- Primary Platform: `/llm-platform/docker-compose.yml`
+- Integration Profile: `/llm-document-enhancer/docker-compose.integration.yml`
+
+**This Service in Integration Profile:**
+| Setting | Value |
+|---------|-------|
+| Container Name | `integration-llm-gateway` |
+| Port | 8080 |
+| Network | `integration-network` |
+| Health Check | `http://localhost:8080/health` |
+
+**Usage:**
+```bash
+# Run with integration profile
+cd /Users/kevintoles/POC/llm-document-enhancer
+docker-compose -f docker-compose.integration.yml --profile standalone up -d
+```
+
+---
+
+## 2025-12-08
+
+### CL-029: Phase 7 - Unified Platform Docker Compose Integration
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-08 |
+| **WBS Item** | 7.1 - 7.8 (Phase 7: Unified Platform Docker Compose) |
+| **Change Type** | Infrastructure |
+| **Summary** | LLM Gateway integrated into unified llm-platform orchestration |
+| **Files Changed** | None in this repo (platform created externally) |
+| **Rationale** | WBS Phase 7 consolidates all services into single orchestration point |
+| **Git Commit** | Pending |
+
+**Unified Platform Integration:**
+- Service name: `llm-gateway` on port 8080
+- Network: `llm-platform` (bridge driver)
+- Health check: `http://localhost:8080/health`
+- Environment prefix: `LLM_GATEWAY_`
+- Dependencies: redis (caching), qdrant (vector search), neo4j (graph queries)
+
+**Platform Location:** `/Users/kevintoles/POC/llm-platform/`
+
+**Usage:**
+```bash
+cd /Users/kevintoles/POC/llm-platform
+./scripts/start.sh        # Start all services
+./scripts/health-check.sh # Verify health
+./scripts/stop.sh         # Stop all services
+```
+
+**Cross-Repo Impact:**
+| Component | Location | Change |
+|-----------|----------|--------|
+| Unified Platform | `llm-platform/docker-compose.yml` | Orchestrates this service |
+| semantic-search-service | `docker-compose.dev.yml` | DEPRECATED |
+| ai-agents | `Dockerfile` | NEW |
+
+---
+
+## 2025-12-05
+
+### CL-028: WBS 3.6 API Documentation and Contract Testing
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-05 |
+| **WBS Item** | 3.6.1.1, 3.6.1.2, 3.6.2 |
+| **Change Type** | Feature, Testing |
+| **Summary** | OpenAPI documentation generation, contract validation, consumer contract tests |
+| **Files Changed** | See table below |
+| **Rationale** | WBS 3.6 requires API documentation and contract testing per GUIDELINES pp. 1004 |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- GUIDELINES pp. 1004: OpenAPI Specification (OAS) standard
+- ARCHITECTURE.md: API documentation requirements
+- Comp_Static_Analysis_Report_20251203.md: No new anti-patterns introduced
+
+**Implementation Details:**
+
+**WBS 3.6.1.1 OpenAPI Generation:**
+| File | WBS | Description |
+|------|-----|-------------|
+| `tests/unit/api/test_openapi.py` | 3.6.1.1.1-5 | 12 tests for OpenAPI endpoint, validation, versioning |
+| `scripts/export_openapi.py` | 3.6.1.1.2 | Export OpenAPI spec to JSON/YAML with validation |
+| `docs/openapi.json` | 3.6.1.1.2 | Generated OpenAPI spec (JSON) |
+| `docs/openapi.yaml` | 3.6.1.1.2 | Generated OpenAPI spec (YAML) |
+| `.github/workflows/ci.yml` | 3.6.1.1.4 | Added `openapi` job for spec export in CI |
+| `requirements-dev.txt` | 3.6.1.1.3 | Added openapi-spec-validator, schemathesis, PyYAML |
+
+**WBS 3.6.1.2 Contract Validation:**
+| File | WBS | Description |
+|------|-----|-------------|
+| `tests/contract/test_schemathesis.py` | 3.6.1.2.1-5 | 15 tests using schemathesis for contract validation |
+| `.github/workflows/ci.yml` | 3.6.1.2.4 | Added `contract-tests` job for CI pipeline |
+| `pyproject.toml` | 3.6.1.2 | Registered `contract` pytest marker |
+
+**WBS 3.6.2 Consumer Contract Tests:**
+| File | WBS | Description |
+|------|-----|-------------|
+| `tests/contract/test_consumer_contracts.py` | 3.6.2.1.1-5 | 14 consumer contract tests from llm-document-enhancer perspective |
+
+**Test Summary:**
+- OpenAPI tests: 12 passed
+- Schemathesis contract tests: 15 passed
+- Consumer contract tests: 14 passed
+- Total contract tests: 29 passed
+
+**CI Pipeline Updates:**
+- Build job now depends on: `[lint, test, integration-tests, contract-tests, openapi, security, sonarqube, helm-lint]`
+
+---
+
+### CL-027: WBS 3.5.4 CI/CD Integration Test Configuration
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-05 |
+| **WBS Item** | 3.5.4.1, 3.5.4.2 |
+| **Change Type** | DevOps |
+| **Summary** | Docker Compose CI configuration and GitHub Actions integration test job |
+| **Files Changed** | `deploy/docker/docker-compose.test.yml` (enhanced), `.github/workflows/ci.yml` (updated) |
+| **Rationale** | WBS 3.5.4 requires CI/CD pipeline to run integration tests with full Docker stack |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- GUIDELINES (Buelta pp. 340): Docker-compose vs Kubernetes for testing
+- GUIDELINES (Buelta pp. 350): Three-tier testing (unit, integration, system)
+- ARCHITECTURE.md: docker-compose.test.yml location at deploy/docker/
+- Comp_Static_Analysis_Report_20251203.md: No new anti-patterns introduced
+
+**Implementation Details:**
+
+**docker-compose.test.yml (WBS 3.5.4.1):**
+| Feature | WBS | Description |
+|---------|-----|-------------|
+| CI Header | 3.5.4.1.1 | Renamed to CI Test Environment with usage instructions |
+| Ephemeral Services | 3.5.4.1.2 | Added tmpfs for Redis, no persistent volumes |
+| Test Runner | 3.5.4.1.3 | Enhanced with coverage, JUnit output, stabilization wait |
+| Exit Codes | 3.5.4.1.4 | `tty: false`, `stdin_open: false` for proper CI exit codes |
+| Health Waits | 3.5.4.1.5 | Added `depends_on: condition: service_healthy` for all services |
+| Service Stubs | N/A | Added semantic-search-test and ai-agents-test stub services |
+
+**ci.yml (WBS 3.5.4.2):**
+| Feature | WBS | Description |
+|---------|-----|-------------|
+| Updated Header | 3.5.4.2.1 | Added integration-tests to job list |
+| Integration Job | 3.5.4.2.2 | New `integration-tests` job with 20min timeout |
+| Docker Compose | 3.5.4.2.3 | Starts services with `docker compose up -d --build` |
+| Health Waits | 3.5.4.2.4 | 60s Redis wait, 120s Gateway wait with timeout |
+| Test Execution | 3.5.4.2.5 | Runs pytest with coverage, JUnit, stop-on-first-failure |
+| Result Collection | 3.5.4.2.6 | Uploads integration-test-results and docker-logs artifacts |
+| Teardown | 3.5.4.2.7 | `docker compose down -v --remove-orphans` in always block |
+| Build Dependencies | 3.5.4.2.8 | Build job now requires integration-tests to pass |
+
+**CI Pipeline Flow:**
+```
+lint ──────────────────────────────────────┐
+test (unit) ── integration-tests ──────────┼── build
+security ──────────────────────────────────┤
+sonarqube ─────────────────────────────────┤
+helm-lint ─────────────────────────────────┘
+```
+
+---
+
+### CL-026: WBS 3.5.3 Cross-Service Integration Tests
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-05 |
+| **WBS Item** | 3.5.3.1, 3.5.3.2, 3.5.3.3 |
+| **Change Type** | Testing |
+| **Summary** | Cross-service integration and end-to-end flow tests for gateway, semantic-search, and ai-agents |
+| **Files Changed** | `tests/integration/test_semantic_search_integration.py` (new), `tests/integration/test_ai_agents_cross_service.py` (new), `tests/integration/test_e2e_flows.py` (new) |
+| **Rationale** | WBS 3.5.3 requires cross-service integration tests against Docker services with full-stack profile |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- GUIDELINES pp. 2309-2321: Circuit breakers, timeouts, graceful degradation patterns
+- GUIDELINES (Newman pp. 357-358): Circuit breaker pattern implementation
+- GUIDELINES (Newman pp. 352-353): Graceful degradation patterns
+- GUIDELINES (Buelta pp. 350): Three-tier testing philosophy
+- ARCHITECTURE.md: Service URLs (redis:6379, semantic-search:8081, ai-agents:8082, llm-gateway:8080)
+- Comp_Static_Analysis_Report_20251203.md: Fixed bare except in test_e2e_flows.py
+
+**Implementation Details:**
+
+**test_semantic_search_integration.py (WBS 3.5.3.1):**
+| Test Class | WBS | Tests |
+|------------|-----|-------|
+| `TestSemanticSearchToolRegistration` | 3.5.3.1.1 | Tool registration when service available |
+| `TestSearchToolExecution` | 3.5.3.1.2 | search_corpus via chat and direct execution |
+| `TestChunkRetrievalIntegration` | 3.5.3.1.3 | get_chunk execution with context |
+| `TestSemanticSearchCircuitBreaker` | 3.5.3.1.4 | Circuit breaker behavior |
+| `TestSemanticSearchTimeouts` | 3.5.3.1.5 | Timeout handling validation |
+| `TestSemanticSearchResponseFormat` | 3.5.3.1.6 | Response format validation |
+
+**test_ai_agents_cross_service.py (WBS 3.5.3.2):**
+| Test Class | WBS | Tests |
+|------------|-----|-------|
+| `TestAIAgentsToolRegistration` | 3.5.3.2.1 | Agent tool listing and schemas |
+| `TestAgentConfigurationRetrieval` | 3.5.3.2.2 | /v1/agents endpoint access |
+| `TestAgentToolExecution` | 3.5.3.2.3 | Tool execution via chat and direct |
+| `TestAgentRouting` | 3.5.3.2.4 | Model and tool-based routing |
+| `TestAIAgentsUnavailability` | 3.5.3.2.5 | Graceful degradation when down |
+| `TestAIAgentsCircuitBreaker` | 3.5.3.2.6 | Circuit breaker after failures |
+| `TestAIAgentsResponseFormat` | 3.5.3.2.7 | Response format validation |
+
+**test_e2e_flows.py (WBS 3.5.3.3):**
+| Test Class | WBS | Tests |
+|------------|-----|-------|
+| `TestCompleteChatFlow` | 3.5.3.3.1 | Simple, session, streaming chat flows |
+| `TestSearchChatResponseFlow` | 3.5.3.3.2 | RAG-style and tool-augmented chat |
+| `TestMultiToolWorkflow` | 3.5.3.3.3 | Sequential and parallel tool execution |
+| `TestSessionLifecycleFlow` | 3.5.3.3.4 | Full session CRUD lifecycle |
+| `TestErrorRecoveryFlow` | 3.5.3.3.5 | Recovery from errors and timeouts |
+| `TestPerformanceCharacteristics` | 3.5.3.3.6 | Response times and concurrent requests |
+| `TestFullStackHealth` | 3.5.3.3.7 | All services health and metrics |
+
+**Test Count Impact:**
+- New tests: 61 (20 semantic-search + 24 ai-agents + 17 e2e)
+- Total integration tests: ~187
+- Total tests: 1035 passed, 61 skipped (Docker tests)
+
+---
+
+### CL-025: WBS 3.5.2 Gateway Integration Tests
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-05 |
+| **WBS Item** | 3.5.2.1, 3.5.2.2, 3.5.2.3, 3.5.2.4 |
+| **Change Type** | Testing |
+| **Summary** | Integration tests for health, chat, sessions, and tool execution endpoints |
+| **Files Changed** | `tests/integration/test_health.py` (new), `tests/integration/test_chat_integration.py` (new), `tests/integration/test_sessions.py` (new), `tests/integration/test_tools_execution.py` (new) |
+| **Rationale** | WBS 3.5.2 requires comprehensive integration tests against Docker services |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- DEPLOYMENT_IMPLEMENTATION_PLAN.md lines 3297-3329: WBS 3.5.2 task definitions
+- GUIDELINES pp. 155-157: "high and low gear" testing philosophy
+- GUIDELINES pp. 242: AI tests require mocks simulating varying response times
+- ARCHITECTURE.md lines 196-220: API endpoints documentation
+- Comp_Static_Analysis_Report_20251203.md: Verified no anti-patterns
+
+**Implementation Details:**
+
+**test_health.py (WBS 3.5.2.1):**
+| Test Class | WBS | Tests |
+|------------|-----|-------|
+| `TestHealthEndpoint` | 3.5.2.1.2 | /health returns 200, schema validation |
+| `TestReadyEndpoint` | 3.5.2.1.3 | /health/ready returns 200, checks Redis/semantic-search |
+| `TestReadyEndpointDegraded` | 3.5.2.1.4 | 503 when Redis down (skipped - manual) |
+| `TestMetricsEndpoint` | 3.5.2.1.5 | /metrics returns Prometheus format |
+
+**test_chat_integration.py (WBS 3.5.2.2):**
+| Test Class | WBS | Tests |
+|------------|-----|-------|
+| `TestChatCompletionSimple` | 3.5.2.2.2 | Simple completion, choices, usage |
+| `TestChatCompletionWithSession` | 3.5.2.2.3 | Session-aware completion |
+| `TestChatCompletionWithTools` | 3.5.2.2.4 | Tool definitions accepted |
+| `TestChatCompletionMultipleTools` | 3.5.2.2.5 | Multiple tools in request |
+| `TestProviderRouting` | 3.5.2.2.6 | Anthropic/OpenAI model routing |
+| `TestChatCompletionErrors` | 3.5.2.2.7 | Invalid model, missing messages |
+| `TestRateLimiting` | 3.5.2.2.8 | Rate limit headers |
+
+**test_sessions.py (WBS 3.5.2.3):**
+| Test Class | WBS | Tests |
+|------------|-----|-------|
+| `TestCreateSession` | 3.5.2.3.2 | POST /v1/sessions returns 201 |
+| `TestGetSession` | 3.5.2.3.3 | GET /v1/sessions/{id} returns 200 |
+| `TestSessionMessagePersistence` | 3.5.2.3.4 | Messages accumulate in session |
+| `TestDeleteSession` | 3.5.2.3.5 | DELETE /v1/sessions/{id} removes session |
+| `TestSessionExpiry` | 3.5.2.3.6 | TTL expiry (skipped - manual) |
+| `TestNonexistentSession` | 3.5.2.3.7 | 404 for unknown sessions |
+
+**test_tools_execution.py (WBS 3.5.2.4):**
+| Test Class | WBS | Tests |
+|------------|-----|-------|
+| `TestListTools` | 3.5.2.4.2 | GET /v1/tools lists available tools |
+| `TestExecuteSearchCorpus` | 3.5.2.4.3 | Execute search_corpus tool |
+| `TestExecuteGetChunk` | 3.5.2.4.4 | Execute get_chunk tool |
+| `TestExecuteUnknownTool` | 3.5.2.4.5 | 404 for unknown tools |
+| `TestExecuteInvalidArguments` | 3.5.2.4.6 | 422 for invalid arguments |
+
+**Test Markers Applied:**
+- `@pytest.mark.integration` - All tests
+- `@pytest.mark.docker` - All tests requiring Docker
+- `@pytest.mark.slow` - Long-running tests
+- `@pytest.mark.skip` - Tests requiring manual setup (Redis down, TTL expiry)
+
+**Anti-Pattern Audit (Comp_Static_Analysis_Report):**
+- ✅ No bare except clauses - all exceptions handled with context
+- ✅ Proper test assertions with descriptive messages
+- ✅ Skip decorators for tests requiring special setup
+- ✅ Fixtures properly scoped (session, function)
+
+**Tests:** 1035 passed, 61 skipped (integration tests skip when Docker not running)
+**Total Integration Tests:** 126 tests in tests/integration/
+
+---
+
+### CL-024: WBS 3.5.1 Integration Test Infrastructure
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-05 |
+| **WBS Item** | 3.5.1.1, 3.5.1.2 |
+| **Change Type** | Testing, Infrastructure |
+| **Summary** | Integration test fixtures and infrastructure for Docker service testing |
+| **Files Changed** | `tests/integration/conftest.py` (new), `pyproject.toml` (updated) |
+| **Rationale** | WBS 3.5.1 requires test infrastructure for integration tests against Docker services |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- DEPLOYMENT_IMPLEMENTATION_PLAN.md lines 3270-3340: WBS 3.5.1 task definitions
+- GUIDELINES pp. 155-157: "high and low gear" testing philosophy
+- tests/conftest.py: Existing mock fixtures pattern to follow
+- docker-compose.yml: Service ports and health endpoints
+
+**Implementation Details:**
+
+**tests/integration/conftest.py (WBS 3.5.1.1.2):**
+Integration-specific fixtures for testing against live Docker services.
+
+**Service URL Fixtures (WBS 3.5.1.1.3):**
+| Fixture | Default URL | Environment Variable |
+|---------|-------------|---------------------|
+| `redis_url` | redis://localhost:6379 | INTEGRATION_REDIS_URL |
+| `gateway_url` | http://localhost:8080 | INTEGRATION_GATEWAY_URL |
+| `semantic_search_url` | http://localhost:8081 | INTEGRATION_SEMANTIC_SEARCH_URL |
+| `ai_agents_url` | http://localhost:8082 | INTEGRATION_AI_AGENTS_URL |
+
+**Service Client Fixtures (WBS 3.5.1.2.2-5):**
+| Fixture | Type | Purpose |
+|---------|------|---------|
+| `gateway_client` | httpx.AsyncClient | Async client for gateway API |
+| `semantic_search_client` | httpx.AsyncClient | Async client for search service |
+| `ai_agents_client` | httpx.AsyncClient | Async client for AI agents |
+| `redis_client` | aioredis.Redis | Async Redis client for test data |
+| Sync versions | httpx.Client | For non-async tests |
+
+**Helper Functions (WBS 3.5.1.2.1):**
+- `wait_for_service(url, timeout, interval, health_path)` - Async service readiness check
+- `wait_for_service_sync()` - Synchronous version for fixtures
+- `wait_for_redis(url, timeout, interval)` - Redis-specific readiness check
+
+**Test Data Fixtures (WBS 3.5.1.1.4):**
+- `sample_chat_payload` - Basic chat completion request
+- `sample_tool_payload` - Chat request with tool definitions
+- `sample_session_payload` - Session creation request
+- `test_session_id` - Unique session ID per test
+
+**Cleanup Fixtures (WBS 3.5.1.2.6):**
+- `clean_redis` - Flushes Redis before/after tests for isolation
+- `skip_if_no_docker` - Skip tests when Docker not running
+- `docker_services_available` - Session-scoped availability check
+
+**pytest Markers (WBS 3.5.1.1.6):**
+Added to pyproject.toml:
+- `unit` - Unit tests for individual components
+- `integration` - Integration tests for service interactions
+- `e2e` - End-to-end workflow tests
+- `slow` - Tests that take a long time
+- `docker` - Tests requiring Docker services
+
+**Tests:** 1035 passing (no regressions)
+
+---
+
+### CL-023: WBS 3.4.2 Local Development Setup and Selective Service Profiles
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-05 |
+| **WBS Item** | 3.4.2.1, 3.4.2.2 |
+| **Change Type** | Feature, Infrastructure, Documentation |
+| **Summary** | Development workflow with hot-reload, Docker Compose profiles for selective service startup |
+| **Files Changed** | `docker-compose.yml` (updated), `docker-compose.dev.yml` (new), `README.md` (updated) |
+| **Rationale** | WBS 3.4.2 requires local development setup and selective service profiles |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- DEPLOYMENT_IMPLEMENTATION_PLAN.md lines 3247-3280: WBS 3.4.2 task definitions
+- ARCHITECTURE.md lines 240-280: Docker Compose patterns, service discovery
+- Comp_Static_Analysis_Report_20251203.md Issues #24-26, #30: Docker-related issues (all resolved)
+
+**Implementation Details:**
+
+**docker-compose.dev.yml (WBS 3.4.2.1):**
+- Hot-reload via uvicorn `--reload` flag (WBS 3.4.2.1.1)
+- Volume mounts: `./src`, `./config`, `./tests`, `./logs` (WBS 3.4.2.1.2)
+- Debug logging: `LLM_GATEWAY_LOG_LEVEL=DEBUG` (WBS 3.4.2.1.3)
+- Debug port 5678 exposed for debugpy (WBS 3.4.2.1.4)
+- Single worker for easier debugging
+- Relaxed healthchecks for development
+
+**Docker Compose Profiles (WBS 3.4.2.2):**
+
+| Profile | Services | Use Case |
+|---------|----------|----------|
+| `gateway-only` | redis, llm-gateway-standalone | Gateway development only (WBS 3.4.2.2.3) |
+| `full-stack` | redis, semantic-search, ai-agents, llm-gateway | Full integration (WBS 3.4.2.2.4) |
+| `integration-test` | All + test-runner | Automated testing (WBS 3.4.2.2.5) |
+
+**README.md Updates (WBS 3.4.2.1.5):**
+- Added "Docker Compose Development Workflow" section
+- Documented hot-reload workflow
+- Documented profile usage commands
+- Added health verification commands
+
+**Profile Validation (WBS 3.4.2.2.6):**
+- All profiles validate via `docker-compose --profile <name> config`
+- ✅ gateway-only: VALID
+- ✅ full-stack: VALID
+- ✅ integration-test: VALID
+
+**Tests:** 1035 passing (no regressions)
+
+---
+
+### CL-022: WBS 3.4.1 Full Stack Docker Compose Integration
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-05 |
+| **WBS Item** | 3.4.1.1, 3.4.1.2, 3.4.1.3 |
+| **Change Type** | Feature, Infrastructure |
+| **Summary** | Full stack Docker Compose with all microservices, stub services for semantic-search and ai-agents |
+| **Files Changed** | `docker-compose.yml`, `deploy/docker/stubs/semantic-search/*` (new), `deploy/docker/stubs/ai-agents/*` (new), `scripts/verify_full_stack.sh` (new) |
+| **Rationale** | WBS 3.4.1 requires full stack orchestration for integration testing |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- DEPLOYMENT_IMPLEMENTATION_PLAN.md lines 3244-3300: WBS 3.4.1 task definitions
+- ARCHITECTURE.md lines 240-280: Docker Compose patterns, service discovery
+- ARCHITECTURE.md lines 345-370: Health check integration, depends_on patterns
+- AI Agents and Applications pp. 453-480: Production deployment patterns
+- Building Microservices: DNS-based service discovery
+- Comp_Static_Analysis_Report_20251203.md Issue #2: Health probe paths
+
+**Implementation Details:**
+
+**docker-compose.yml Updates (WBS 3.4.1.1.1-3.4.1.1.10):**
+- Added semantic-search service (port 8081) with stub build context
+- Added ai-agents service (port 8082) with stub build context
+- Configured `llm-network` shared network for DNS service discovery
+- Environment variables for inter-service communication
+- Health checks matching ARCHITECTURE.md patterns: `/health`, `/health/ready`
+- `depends_on` with `condition: service_healthy` for startup ordering
+
+**Stub Services (for development until real services implemented):**
+- `deploy/docker/stubs/semantic-search/` - FastAPI stub with health + search endpoints
+- `deploy/docker/stubs/ai-agents/` - FastAPI stub with health + agent endpoints
+
+**Verification Script (scripts/verify_full_stack.sh):**
+- WBS 3.4.1.2 health verification for all services
+- WBS 3.4.1.3 inter-service communication tests
+- Documents startup sequence and timing
+
+**Service Startup Order (via depends_on):**
+1. redis (no dependencies)
+2. semantic-search (no dependencies)  
+3. ai-agents (depends on: semantic-search)
+4. llm-gateway (depends on: redis, semantic-search, ai-agents)
+
+**Patterns Applied:**
+- DNS-based service discovery (ARCHITECTURE.md lines 275-280)
+- Health check integration for Kubernetes compatibility
+- Graceful degradation with circuit breaker support
+- Stub services following actual API contracts
+
+**Configuration Validated:** ✅ `docker-compose config` passes
+
+---
+
+### CL-021: WBS 3.3.3 Agent Workflow Integration Testing
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-05 |
+| **WBS Item** | 3.3.3.1, 3.3.3.2 |
+| **Change Type** | Feature, Testing |
+| **Summary** | Comprehensive integration tests for agent workflow end-to-end and error handling |
+| **Files Changed** | `tests/integration/test_agent_workflow_integration.py` (new) |
+| **Rationale** | WBS 3.3.3 requires full agent flow testing and error handling validation |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- DEPLOYMENT_IMPLEMENTATION_PLAN.md lines 3211-3240: WBS 3.3.3 task definitions
+- GUIDELINES pp. 1460-1600: Agent tool execution patterns, ReAct framework
+- Architecture Patterns with Python pp. 155-157: Living documentation tests
+- Building Microservices pp. 352-353: Graceful degradation patterns
+- Comp_Static_Analysis_Report_20251203.md Issues #9-12: Race conditions, connection pooling anti-patterns
+
+**Implementation Details:**
+
+**TestAgentWorkflowEndToEnd (6 tests):**
+- `test_code_review_through_gateway_tool_execute` - WBS 3.3.3.1.2
+- `test_llm_can_request_code_review_tool` - WBS 3.3.3.1.3
+- `test_tool_results_contain_expected_structure` - WBS 3.3.3.1.4
+- `test_multi_tool_workflow_review_then_doc` - WBS 3.3.3.1.5 (review → doc)
+- `test_multi_tool_workflow_review_analyze_doc` - WBS 3.3.3.1.5 (full saga)
+- `test_all_agent_tools_return_consistent_response_format` - WBS 3.3.3.1.6
+
+**TestAgentWorkflowErrorHandling (6 tests):**
+- `test_service_unavailable_returns_graceful_error` - WBS 3.3.3.2.1
+- `test_timeout_returns_graceful_error` - WBS 3.3.3.2.2
+- `test_invalid_response_handled_gracefully` - WBS 3.3.3.2.3
+- `test_errors_returned_gracefully_to_caller` - WBS 3.3.3.2.4
+- `test_all_tools_handle_errors_consistently` - WBS 3.3.3.2.5
+- `test_partial_workflow_failure_continues` - WBS 3.3.3.2.5 (saga failure)
+
+**TestAgentWorkflowGreenPhaseMarkers (2 tests):**
+- `test_agent_tools_registered_in_builtin_tools` - WBS 3.3.3.1.7 GREEN marker
+- `test_error_handling_does_not_crash_gateway` - WBS 3.3.3.2.6 GREEN marker
+
+**Patterns Applied:**
+- Living documentation tests (Percival & Gregory pp. 155-157)
+- Graceful degradation (Newman pp. 352-353)
+- Saga pattern for multi-step workflows
+- MagicMock for httpx synchronous response.json() (avoiding AsyncMock coroutine issues)
+
+**Anti-Patterns Avoided:**
+- §3.1: No bare except clauses in mocks
+- Issue #12: Mock connection pooling pattern correctly
+- AsyncMock for async context manager, MagicMock for sync response methods
+
+**Tests Added:** 14 new tests in `test_agent_workflow_integration.py`, 1035 total passing
+
+---
+
+### CL-020: WBS 3.3.2 Agent Tool Wiring
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-05 |
+| **WBS Item** | 3.3.2.1, 3.3.2.2, 3.3.2.3 |
+| **Change Type** | Feature |
+| **Summary** | Implemented agent tool wiring for code_review, architecture, and doc_generate tools |
+| **Files Changed** | `src/tools/builtin/code_review.py` (new), `src/tools/builtin/architecture.py` (new), `src/tools/builtin/doc_generate.py` (new), `src/api/routes/tools.py`, `tests/integration/test_agent_tools_integration.py` (new) |
+| **Rationale** | WBS 3.3.2 requires agent tool integration to proxy requests to ai-agents microservice |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- DEPLOYMENT_IMPLEMENTATION_PLAN.md lines 3178-3210: WBS 3.3.2 task definitions
+- ai-agents/docs/ARCHITECTURE.md: Agent endpoints `/v1/agents/{code-review,architecture,doc-generate}`
+- GUIDELINES pp. 1489-1544: Agent tool execution patterns
+- semantic_search.py pattern: Service proxy with async httpx.AsyncClient
+
+**Implementation Details:**
+
+**code_review.py Module (src/tools/builtin/code_review.py):**
+- `review_code(args: dict)` - Proxies to `/v1/agents/code-review/run`
+- Parameters: `code: str`, `language: str` (default: 'python')
+- Returns: `findings`, `summary`, `score`
+- `REVIEW_CODE_DEFINITION` - ToolDefinition for registration
+
+**architecture.py Module (src/tools/builtin/architecture.py):**
+- `analyze_architecture(args: dict)` - Proxies to `/v1/agents/architecture/run`
+- Parameters: `code: str`, `context: str` (optional)
+- Returns: `analysis` with patterns, concerns, suggestions
+- `ANALYZE_ARCHITECTURE_DEFINITION` - ToolDefinition for registration
+
+**doc_generate.py Module (src/tools/builtin/doc_generate.py):**
+- `generate_documentation(args: dict)` - Proxies to `/v1/agents/doc-generate/run`
+- Parameters: `code: str`, `format: str` (default: 'markdown')
+- Returns: `documentation`, `format`, `sections`
+- `GENERATE_DOCUMENTATION_DEFINITION` - ToolDefinition for registration
+
+**tools.py Wiring (src/api/routes/tools.py):**
+- Added imports for all three tool modules
+- Added wrappers: `review_code_wrapper`, `analyze_architecture_wrapper`, `generate_documentation_wrapper`
+- Added entries to `BUILTIN_TOOLS` dict for all three tools
+
+**Anti-Patterns Avoided:**
+- §3.1: Specific exception handling for ConnectError, TimeoutException, HTTPStatusError
+- §67: Uses httpx.AsyncClient context manager for connection pooling
+- A002: Documented format parameter shadowing builtin
+
+**Tests Added:** 16 new tests in `test_agent_tools_integration.py`, 1021 total passing
+
+**Test Coverage:**
+- `TestCodeReviewToolIntegration`: 4 tests (registered, accepts params, returns findings, handles unavailable)
+- `TestArchitectureToolIntegration`: 3 tests (registered, accepts params, returns analysis)
+- `TestDocGenerateToolIntegration`: 3 tests (registered, accepts params, returns docs)
+- `TestAgentToolModulesExist`: 6 tests (module exists, async verification for each)
+
+---
+
+### CL-019: WBS 3.3.1 AI Agents Gateway Integration
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-05 |
+| **WBS Item** | 3.3.1.1, 3.3.1.2 |
+| **Change Type** | Feature |
+| **Summary** | Added ai-agents health check integration with optional service graceful degradation |
+| **Files Changed** | `src/api/routes/health.py`, `tests/integration/test_ai_agents_integration.py`, `tests/unit/api/test_health.py`, `tests/unit/api/test_health_semantic_search.py` |
+| **Rationale** | WBS 3.3.1 requires gateway configuration for ai-agents microservice integration |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- ARCHITECTURE.md line 342: "Degraded Mode: Return 200 with 'status': 'degraded' if optional services unavailable"
+- llm-document-enhancer/docs/ARCHITECTURE.md line 242: "ai-agents | Microservice (optional)"
+- Newman (Building Microservices) pp. 352-353: Graceful degradation patterns
+- Static Analysis Report Issue #24: ai-agents:8082 stub service already exists
+
+**Implementation Details:**
+
+**HealthService Updates (src/api/routes/health.py):**
+- Added `AI_AGENTS_URL` constant from env var `LLM_GATEWAY_AI_AGENTS_URL`
+- Added `ai_agents_url` parameter to `HealthService.__init__()`
+- Implemented `check_ai_agents_health()` method following semantic_search pattern
+- Updated readiness endpoint with three-state logic: ready/degraded/not_ready
+
+**Readiness Logic:**
+- **ready**: All services healthy (redis, semantic_search, ai_agents)
+- **degraded**: Critical services healthy but optional services down (200 response)
+- **not_ready**: Critical services down (503 response)
+- ai_agents is optional - does NOT fail readiness when unavailable
+
+**Anti-Patterns Avoided:**
+- §3.1: Exceptions logged with context, no bare except
+- §67: Uses httpx.AsyncClient context manager for connection pooling
+
+**Tests Added:** 12 new tests in `test_ai_agents_integration.py`, 1005 total passing
+
+**Test Coverage:**
+- `TestAIAgentsGatewayConfiguration`: 3 tests (URL in settings, env configurable, naming convention)
+- `TestAIAgentsHealthCheckIntegration`: 6 tests (function exists, returns bool, in readiness, optional behavior, timeout handling)
+- `TestGatewayAIAgentsURLResolution`: 3 tests (settings loads URL, service uses URL, custom URL injection)
+
+**Fixture Updates:**
+- `tests/unit/api/test_health.py`: Updated `mock_redis_healthy` and `mock_redis_unhealthy` to also mock `check_ai_agents_health`
+- `tests/unit/api/test_health_semantic_search.py`: Updated `test_readiness_200_when_all_services_healthy` to mock ai_agents
+
+---
+
+### CL-018: WBS 3.2.3 Error Handling and Resilience
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-05 |
+| **WBS Item** | 3.2.3.1, 3.2.3.2 |
+| **Change Type** | Feature |
+| **Summary** | Integrated circuit breaker and configurable timeouts into semantic search tools |
+| **Files Changed** | `src/core/config.py`, `src/tools/builtin/semantic_search.py`, `src/tools/builtin/chunk_retrieval.py`, `tests/integration/test_resilience.py` |
+| **Rationale** | WBS 3.2.3 requires resilience patterns per ARCHITECTURE.md and Newman (Building Microservices) |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- ARCHITECTURE.md line 343: Circuit breaker pattern reference
+- ARCHITECTURE.md Graceful Degradation section: Resilience requirements
+- Newman (Building Microservices) pp. 357-358: Circuit breaker pattern
+- GUIDELINES pp. 2309: Connection pooling and circuit breaker patterns
+
+**Implementation Details:**
+
+**Configuration (src/core/config.py):**
+- Added `semantic_search_timeout_seconds: float = 30.0` - Configurable timeout for service calls
+- Added `circuit_breaker_failure_threshold: int = 5` - Failures before circuit opens
+- Added `circuit_breaker_recovery_timeout_seconds: float = 30.0` - Recovery wait time
+
+**Circuit Breaker Integration (semantic_search.py):**
+- Added `get_semantic_search_circuit_breaker()` singleton getter
+- Created `_do_search()` internal function for circuit breaker wrapping
+- `search_corpus()` now uses circuit breaker for all HTTP calls
+- Handles `CircuitOpenError` with clear error message
+
+**Circuit Breaker Integration (chunk_retrieval.py):**
+- Added `get_chunk_circuit_breaker()` alias pointing to shared circuit breaker
+- Created `_do_get_chunk()` internal function for circuit breaker wrapping
+- `get_chunk()` now uses shared circuit breaker
+- Both tools share same circuit breaker for semantic-search-service
+
+**Tests Added:** 9 new resilience tests, 993 total passing
+
+**Test Coverage:**
+- `TestCircuitBreakerIntegration`: 4 tests (circuit opens, graceful degradation, recovery, shared CB)
+- `TestTimeoutHandling`: 3 tests (config exists, value used, chunk uses same)
+- `TestCircuitBreakerBehavior`: 2 tests (config thresholds, singleton pattern)
+
+**Document Hierarchy Compliance Audit (2025-12-05):**
+
+✅ **GUIDELINES Compliance:**
+- p.2309: "timeouts, circuit breakers, and bulkheads as protection mechanisms against cascading failures" → Implemented via `CircuitBreaker` class
+- p.2309: "fast failing after threshold breaches" → Implemented via `CircuitOpenError` exception
+- p.2145: "graceful degradation, and circuit breaker patterns become essential" → Implemented with error responses
+- p.1004: "fault tolerance (circuit breakers and timeouts)" → Configurable via Settings
+
+✅ **ARCHITECTURE.md Compliance:**
+- Line 343: "Circuit Breaker: Fast-fail after repeated failures (implemented in `src/clients/circuit_breaker.py`)" → Verified integrated
+- Graceful Degradation section: Patterns 1-4 implemented (503, 200/degraded, circuit breaker, timeout)
+
+✅ **Static Analysis Report (Issue #10) Compliance:**
+- Issue: "State Property Race Condition" in `circuit_breaker.py` lines 135-145
+- Resolution: "Added `asyncio.Lock()` (`_lock`) and new `async check_and_update_state()` method"
+- Verified: `_lock = asyncio.Lock()` at line 120, `check_and_update_state()` method at line 150
+- State property now read-only (returns `_state` directly)
+
+✅ **CODING_PATTERNS_ANALYSIS Compliance:**
+- Line 64: "Race Conditions | 3 | CodeRabbit | Token bucket, circuit breaker state..." → Fixed with asyncio.Lock
+- Thread-safe state transitions per WBS 2.7.2.1.10
+
+✅ **WBS Task Verification:**
+| Task | Status | Test Coverage |
+|------|--------|---------------|
+| 3.2.3.1.1 | ✅ | `test_graceful_degradation_returns_error_not_crash` |
+| 3.2.3.1.2 | ✅ | `test_circuit_opens_after_failures` |
+| 3.2.3.1.3 | ✅ | `test_graceful_degradation_returns_error_not_crash` |
+| 3.2.3.1.4 | ✅ | `test_circuit_recovery_after_timeout` |
+| 3.2.3.1.5 | ✅ | `test_get_chunk_uses_circuit_breaker`, `test_semantic_search_circuit_breaker_singleton` |
+| 3.2.3.1.6 | ✅ | All 9 tests GREEN |
+| 3.2.3.2.1 | ✅ | `test_timeout_configurable_in_settings` |
+| 3.2.3.2.2 | ✅ | Mock service infrastructure in tests |
+| 3.2.3.2.3 | ✅ | `test_timeout_used_by_search_tool` |
+| 3.2.3.2.4 | ✅ | `test_chunk_retrieval_timeout_configurable` |
+| 3.2.3.2.5 | ✅ | All timeout tests GREEN |
+
+---
+
+### CL-017: WBS 3.2.2 Search Tool Integration
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-05 |
+| **WBS Item** | 3.2.2.1, 3.2.2.2 |
+| **Change Type** | Feature |
+| **Summary** | Wired semantic search tools (`search_corpus`, `get_chunk`) to `/v1/tools/execute` API endpoint |
+| **Files Changed** | `src/api/routes/tools.py`, `tests/integration/test_semantic_search_tools.py` |
+| **Rationale** | WBS 3.2.2 requires integration of semantic search tools through llm-gateway for RAG workflows |
+| **Git Commit** | Pending |
+
+**Document Analysis Results:**
+- GUIDELINES pp. 1391: RAG systems and retrieval patterns
+- GUIDELINES pp. 1440: Async retrieval pipelines
+- GUIDELINES pp. 1544: Tool inventories as service registries
+- ARCHITECTURE.md lines 52-53: `semantic_search.py`, `chunk_retrieval.py`
+- CODING_PATTERNS_ANALYSIS §67: httpx.AsyncClient anti-pattern (noted for future refactoring)
+
+**Implementation Details:**
+
+**Tool Wiring (src/api/routes/tools.py):**
+- Added `search_corpus_wrapper()` and `get_chunk_wrapper()` adapter functions
+- Pattern: Adapter pattern - adapt dict-based tools to keyword-arg signature
+- Created inline `ToolDefinition` instances for API layer (using `tools.ToolDefinition`)
+- Extended `BUILTIN_TOOLS` dict with `search_corpus` and `get_chunk` entries
+
+**Dual ToolDefinition Resolution:**
+- Issue: Two `ToolDefinition` classes exist (`src/models/tools.py` vs `src/models/domain.py`)
+- `domain.ToolDefinition` used in builtin modules for `RegisteredTool` compatibility
+- `tools.ToolDefinition` used in API layer for `ToolExecutorService` compatibility
+- Resolution: Inline definitions in `tools.py` to avoid cross-import type mismatch
+
+**Tests Added:** 14 new integration tests, 984 total passing
+
+**Integration Test Coverage:**
+- `TestSearchCorpusToolIntegration`: 6 tests (registration, results, queries, top_k, empty, errors)
+- `TestChunkRetrievalToolIntegration`: 5 tests (registration, content/metadata, IDs, not found, errors)
+- `TestToolExecuteEndpointIntegration`: 3 tests (endpoint exists, unknown tool, missing args)
+
+---
+
+### ACTION ITEMS / TECHNICAL DEBT
+
+#### AI-001: httpx.AsyncClient Per-Request Anti-Pattern
+
+| Field | Value |
+|-------|-------|
+| **Identified** | 2025-12-05 (WBS 3.2.2 Document Analysis Phase) |
+| **Priority** | Medium |
+| **Location** | `src/tools/builtin/semantic_search.py`, `src/tools/builtin/chunk_retrieval.py` |
+| **Anti-Pattern** | CODING_PATTERNS_ANALYSIS §67 - New `httpx.AsyncClient` created per request |
+| **Planned Resolution** | **WBS 2.7.1.1.4** (Configure connection pooling) and **WBS 2.7.1.2** (SemanticSearchClient) |
+
+**Current Code Pattern:**
+```python
+async with httpx.AsyncClient(timeout=30.0) as client:
+    response = await client.post(url, json=payload)
+```
+
+**Issue:** Creates new connection per request, wastes connection pool resources, adds latency.
+
+**Recommended Fix:**
+1. Refactor builtin tools to use `SemanticSearchClient` from `src/clients/semantic_search.py`
+2. `SemanticSearchClient` already uses `create_http_client()` factory with connection pooling
+3. This aligns with WBS 2.7.1.2 which implements proper HTTP client patterns
+
+**WBS Coverage:**
+- WBS 2.7.1.1.4: "Configure connection pooling" ✅ Already implemented in `src/clients/http.py`
+- WBS 2.7.1.2: `SemanticSearchClient` class ✅ Already implemented in `src/clients/semantic_search.py`
+- **Gap**: Builtin tools don't use the client - needs refactoring to wire them together
+
+**References:**
+- CODING_PATTERNS_ANALYSIS §67
+- GUIDELINES pp. 1440: Async retrieval pipelines recommend connection reuse
+
+**Note:** This is a performance optimization, not a functional issue. The circuit breaker 
+integration in WBS 3.2.3 provides resilience while this anti-pattern remains for future cleanup.
+
+---
+
+#### AI-002: Dual ToolDefinition Class Unification
+
+| Field | Value |
+|-------|-------|
+| **Identified** | 2025-12-05 (WBS 3.2.2 Implementation) |
+| **Priority** | Low |
+| **Location** | `src/models/tools.py:25`, `src/models/domain.py:37` |
+| **Planned Resolution** | **Not covered in WBS** - Technical debt for future refactoring |
+
+**Issue:** Two separate `ToolDefinition` classes with identical fields but different Python types.
+
+**WBS Coverage Analysis:**
+- WBS 2.2.4.2.3 and 2.4.1.2 both create ToolDefinition but in different modules
+- No WBS item addresses consolidation or unification
+- This emerged from organic implementation - not a planned architecture decision
+
+**Current Workaround:** 
+- Builtin tool modules use `domain.ToolDefinition` for `RegisteredTool` compatibility
+- API layer uses inline `tools.ToolDefinition` for `ToolExecutorService` compatibility
+- **Status**: Working but violates DRY principle
+
+**Recommended Fix (Future Tech Debt Sprint):**
+1. Evaluate whether both registries (`ToolRegistry` and `ToolExecutorService`) are needed
+2. If both needed, consider shared base class or protocol
+3. If consolidation possible, remove duplicate class
+4. Consider adding to Phase 5 (Hardening) or creating separate tech debt WBS
+
+**Impact Assessment:**
+- Functional Impact: None - system works correctly
+- Maintenance Impact: Low - changes to ToolDefinition fields need dual updates
+- Risk: Low - Pydantic validates both classes identically
+
+---
+
+#### AI-003: WBS 3.2.3 Resilience Patterns ✅ RESOLVED
+
+| Field | Value |
+|-------|-------|
+| **Identified** | 2025-12-05 (WBS 3.2.2 Acceptance Verification) |
+| **Resolved** | 2025-12-05 (CL-018) |
+| **Priority** | Medium |
+| **WBS Items** | 3.2.3.1 (Service Unavailable Handling), 3.2.3.2 (Timeout Handling) |
+| **Status** | ✅ Complete |
+
+**Resolution Summary:**
+- Circuit breaker integrated into `semantic_search.py` and `chunk_retrieval.py`
+- Timeout now configurable via `semantic_search_timeout_seconds` setting
+- Circuit breaker thresholds configurable via settings
+- 9 integration tests added, 993 total tests passing
+
+**Gap Analysis - RESOLVED:**
+
+| WBS Item | Requirement | Status |
+|----------|-------------|--------|
+| 3.2.3.1.2 | Circuit breaker opens after failures | ✅ Implemented |
+| 3.2.3.1.3 | Graceful degradation (tools return error, not crash) | ✅ Implemented |
+| 3.2.3.1.4 | Recovery when service comes back | ✅ Implemented (HALF_OPEN state) |
+| 3.2.3.2.1 | Configure appropriate timeouts | ✅ Configurable via Settings |
+| 3.2.3.2.2 | Test behavior on slow responses | ✅ Tested via config validation |
+
+**ARCHITECTURE.md Alignment:**
+- `src/clients/circuit_breaker.py` exists ✅
+- Circuit breaker integrated with semantic search tools ✅
+- Service Discovery Patterns documented ✅
+
+---
+
+### ARCHITECTURE ALIGNMENT VERIFICATION
+
+#### CL-018 Alignment Check (2025-12-05)
+
+| ARCHITECTURE.md Reference | Implementation | Status |
+|---------------------------|----------------|--------|
+| Line 343: Circuit breaker in `src/clients/circuit_breaker.py` | File exists with CircuitBreaker class | ✅ Aligned |
+| Graceful Degradation section | Tools use circuit breaker for fast-fail | ✅ Aligned |
+| Line 344: 5-second health check timeout | Configurable via settings | ✅ Aligned |
+
+---
+
+#### CL-017 Alignment Check (2025-12-05)
+
+| ARCHITECTURE.md Reference | Implementation | Status |
+|---------------------------|----------------|--------|
+| Line 52: `semantic_search.py` "Proxy to semantic-search-service" | `src/tools/builtin/semantic_search.py` exists, calls `/v1/search` | ✅ Aligned |
+| Line 53: `chunk_retrieval.py` "Document chunk retrieval" | `src/tools/builtin/chunk_retrieval.py` exists, calls `/v1/chunks/{id}` | ✅ Aligned |
+| Line 79: `semantic_search_url` in Settings | `src/core/config.py:79` has `semantic_search_url` field | ✅ Aligned |
+| Line 232: semantic-search-service dependency | Dependencies section lists semantic-search-service | ✅ Aligned |
+| Line 249: `SEMANTIC_SEARCH_URL=http://semantic-search:8081` | Settings default matches | ✅ Aligned |
+| Line 332: Circuit breaker in `src/clients/circuit_breaker.py` | **File does not exist** | ❌ Gap |
+| Line 280: `LLM_GATEWAY_SEMANTIC_SEARCH_URL` env var | Config uses `LLM_GATEWAY_` prefix | ✅ Aligned |
+
+**Summary:** Implementation is aligned with ARCHITECTURE.md for WBS 3.2.2. Circuit breaker (WBS 3.2.3) is documented in ARCHITECTURE.md but not yet implemented.
+
+---
+
 ## 2025-12-03
 
 ### CL-016: WBS 2.4.1 Tool Registry and Domain Models

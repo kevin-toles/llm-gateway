@@ -40,6 +40,14 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
 asyncio_mode = "auto"
+markers = [
+    "unit: Unit tests for individual components (primitives)",
+    "integration: Integration tests for service interactions (domain)",
+    "contract: Contract tests validating API matches OpenAPI spec",
+    "e2e: End-to-end workflow tests",
+    "slow: Tests that take a long time to run",
+    "docker: Tests requiring Docker services to be running",
+]
 
 [tool.mypy]
 python_version = "3.11"

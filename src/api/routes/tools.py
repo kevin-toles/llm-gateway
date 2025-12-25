@@ -13,10 +13,17 @@ Anti-Patterns Avoided:
 - ANTI_PATTERN_ANALYSIS §1.1: Optional types with explicit None
 - ANTI_PATTERN_ANALYSIS §3.1: No bare except clauses
 - ANTI_PATTERN_ANALYSIS §4.1: Cognitive complexity < 15 per function
+
+WBS 3.2.2: Search Tool Integration
+- 3.2.2.1: search_corpus tool registered and wired to semantic-search-service
+- 3.2.2.2: get_chunk tool registered and wired to semantic-search-service
 """
 
+import asyncio
+import inspect
 import logging
-from typing import Optional, Any, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -26,6 +33,20 @@ from src.models.tools import (
     ToolExecuteResponse,
 )
 
+# WBS 3.2.2: Import semantic search tool functions (not definitions)
+from src.tools.builtin.chunk_retrieval import get_chunk
+from src.tools.builtin.semantic_search import search_corpus
+
+# WBS 3.3.2: Import AI agent tool functions
+from src.tools.builtin.code_review import review_code
+from src.tools.builtin.architecture import analyze_architecture
+from src.tools.builtin.doc_generate import generate_documentation
+
+# WBS 2.4.3.2: Import cross-reference tool (ai-agents proxy)
+from src.tools.builtin.cross_reference import cross_reference
+
+# WBS MSE-6: Import enrich-metadata tool (ai-agents MSEP proxy)
+from src.tools.builtin.enrich_metadata import enrich_metadata
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -37,7 +58,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-async def echo_tool(message: str) -> dict[str, Any]:
+def echo_tool(message: str) -> dict[str, Any]:
     """
     Echo tool - returns the input message.
 
@@ -50,7 +71,7 @@ async def echo_tool(message: str) -> dict[str, Any]:
     return {"echoed": message}
 
 
-async def calculator_tool(a: float, b: float, operation: str = "add") -> dict[str, Any]:
+def calculator_tool(a: float, b: float, operation: str = "add") -> dict[str, Any]:
     """
     Calculator tool - performs basic arithmetic.
 
@@ -81,6 +102,215 @@ async def calculator_tool(a: float, b: float, operation: str = "add") -> dict[st
 
     result = operations[operation](a, b)
     return {"result": result, "operation": operation, "a": a, "b": b}
+
+
+# =============================================================================
+# WBS 3.2.2: Semantic Search Tool Wrappers
+# Pattern: Adapter pattern - adapt dict-based tools to keyword args
+# =============================================================================
+
+
+async def search_corpus_wrapper(
+    query: str,
+    top_k: int = 10,
+    collection: str = "documents",
+) -> dict[str, Any]:
+    """
+    Wrapper for search_corpus tool to adapt to keyword args pattern.
+
+    WBS 3.2.2.1.3: Call search_corpus tool through gateway.
+
+    Args:
+        query: The search query.
+        top_k: Maximum number of results (default: 10).
+        collection: Collection to search (default: 'documents').
+
+    Returns:
+        Search results from semantic-search-service.
+    """
+    args = {"query": query, "top_k": top_k, "collection": collection}
+    return await search_corpus(args)
+
+
+async def get_chunk_wrapper(chunk_id: str) -> dict[str, Any]:
+    """
+    Wrapper for get_chunk tool to adapt to keyword args pattern.
+
+    WBS 3.2.2.2.1: Call get_chunk tool through gateway.
+
+    Args:
+        chunk_id: The unique identifier of the chunk.
+
+    Returns:
+        Chunk data from semantic-search-service.
+    """
+    args = {"chunk_id": chunk_id}
+    return await get_chunk(args)
+
+
+# =============================================================================
+# WBS 3.3.2: AI Agent Tool Wrappers
+# Pattern: Adapter pattern - adapt dict-based tools to keyword args
+# =============================================================================
+
+
+async def review_code_wrapper(code: str, language: str = "python") -> dict[str, Any]:
+    """
+    Wrapper for review_code tool to adapt to keyword args pattern.
+
+    WBS 3.3.2.1.3: Call code review tool through gateway.
+
+    Args:
+        code: The source code to review.
+        language: Programming language (default: 'python').
+
+    Returns:
+        Code review findings from ai-agents service.
+    """
+    args = {"code": code, "language": language}
+    return await review_code(args)
+
+
+async def analyze_architecture_wrapper(code: str, context: str = "") -> dict[str, Any]:
+    """
+    Wrapper for analyze_architecture tool to adapt to keyword args pattern.
+
+    WBS 3.3.2.2.3: Call architecture analysis tool through gateway.
+
+    Args:
+        code: The source code to analyze.
+        context: Additional context about the codebase.
+
+    Returns:
+        Architecture analysis from ai-agents service.
+    """
+    args = {"code": code, "context": context}
+    return await analyze_architecture(args)
+
+
+async def generate_documentation_wrapper(
+    code: str, format: str = "markdown"  # NOSONAR A002 - 'format' shadows builtin, intentional API match
+) -> dict[str, Any]:
+    """
+    Wrapper for generate_documentation tool to adapt to keyword args pattern.
+
+    WBS 3.3.2.3.3: Call doc generation tool through gateway.
+
+    Args:
+        code: The source code to document.
+        format: Output format (default: 'markdown').
+
+    Returns:
+        Generated documentation from ai-agents service.
+    """
+    args = {"code": code, "format": format}
+    return await generate_documentation(args)
+
+
+# =============================================================================
+# WBS 2.4.3.2: Cross-Reference Tool Wrapper
+# Pattern: Service proxy (proxies to ai-agents Cross-Reference Agent)
+# =============================================================================
+
+
+async def cross_reference_wrapper(
+    book: str,
+    chapter: int,
+    title: str,
+    tier: int,
+    content: str | None = None,
+    keywords: list[str] | None = None,
+    concepts: list[str] | None = None,
+    max_hops: int = 3,
+    min_similarity: float = 0.7,
+    include_tier1: bool = True,
+    include_tier2: bool = True,
+    include_tier3: bool = True,
+    taxonomy_id: str = "ai-ml",
+) -> dict[str, Any]:
+    """
+    Wrapper for cross_reference tool to adapt to keyword args pattern.
+
+    WBS 2.4.3.2.5: Call cross_reference tool through gateway.
+
+    This tool proxies to the ai-agents Cross-Reference Agent, which:
+    - Traverses the taxonomy graph (Spider Web Model)
+    - Finds related content across tiers
+    - Generates scholarly annotations with Chicago-style citations
+
+    Args:
+        book: Source book title.
+        chapter: Chapter number (1-indexed).
+        title: Chapter title.
+        tier: Tier level (1=Architecture, 2=Implementation, 3=Practices).
+        content: Chapter content text (optional).
+        keywords: Extracted keywords from the chapter.
+        concepts: Key concepts from the chapter.
+        max_hops: Maximum traversal depth in taxonomy graph (default: 3).
+        min_similarity: Minimum similarity threshold (default: 0.7).
+        include_tier1: Include Architecture Spine results (default: True).
+        include_tier2: Include Implementation results (default: True).
+        include_tier3: Include Practices results (default: True).
+        taxonomy_id: Taxonomy identifier (default: 'ai-ml').
+
+    Returns:
+        Cross-reference results from ai-agents service.
+    """
+    args = {
+        "book": book,
+        "chapter": chapter,
+        "title": title,
+        "tier": tier,
+        "content": content,
+        "keywords": keywords or [],
+        "concepts": concepts or [],
+        "max_hops": max_hops,
+        "min_similarity": min_similarity,
+        "include_tier1": include_tier1,
+        "include_tier2": include_tier2,
+        "include_tier3": include_tier3,
+        "taxonomy_id": taxonomy_id,
+    }
+    return await cross_reference(args)
+
+
+# =============================================================================
+# WBS MSE-6: Enrich Metadata Tool Wrapper
+# Pattern: Service proxy (proxies to ai-agents MSEP endpoint)
+# Kitchen Brigade: Gateway (MANAGER) -> ai-agents (EXPEDITOR)
+# =============================================================================
+
+
+async def enrich_metadata_wrapper(
+    corpus: list[str],
+    chapter_index: list[dict[str, Any]],
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Wrapper for enrich_metadata tool to adapt to keyword args pattern.
+
+    WBS MSE-6.1: Call enrich_metadata tool through gateway.
+
+    Kitchen Brigade Pattern:
+    - External apps (llm-document-enhancer) call Gateway
+    - Gateway routes to ai-agents MSEP endpoint
+    - NO direct ai-agents calls from external apps
+
+    Args:
+        corpus: List of document texts (one per chapter).
+        chapter_index: Metadata for each chapter (book, chapter, title).
+        config: Optional MSEP configuration parameters.
+
+    Returns:
+        Enriched metadata from ai-agents MSEP service.
+    """
+    args: dict[str, Any] = {
+        "corpus": corpus,
+        "chapter_index": chapter_index,
+    }
+    if config is not None:
+        args["config"] = config
+    return await enrich_metadata(args)
 
 
 # =============================================================================
@@ -130,6 +360,275 @@ BUILTIN_TOOLS: dict[str, tuple[ToolDefinition, ToolFunction]] = {
         ),
         calculator_tool,
     ),
+    # =========================================================================
+    # WBS 3.2.2.1: Semantic Search Tool
+    # Pattern: Service proxy (proxies to semantic-search-service)
+    # =========================================================================
+    "search_corpus": (
+        ToolDefinition(
+            name="search_corpus",
+            description="Search the document corpus for relevant content using semantic similarity. "
+            "Returns the most relevant chunks matching the query.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query to find relevant documents.",
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Maximum number of results to return (default: 10).",
+                        "default": 10,
+                    },
+                    "collection": {
+                        "type": "string",
+                        "description": "The document collection to search (default: 'default').",
+                        "default": "default",
+                    },
+                },
+                "required": ["query"],
+            },
+        ),
+        search_corpus_wrapper,
+    ),
+    # =========================================================================
+    # WBS 3.2.2.2: Chunk Retrieval Tool
+    # Pattern: Service proxy (proxies to semantic-search-service)
+    # =========================================================================
+    "get_chunk": (
+        ToolDefinition(
+            name="get_chunk",
+            description="Retrieve a specific document chunk by its ID. "
+            "Returns the chunk content and associated metadata.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "chunk_id": {
+                        "type": "string",
+                        "description": "The unique identifier of the chunk to retrieve.",
+                    },
+                },
+                "required": ["chunk_id"],
+            },
+        ),
+        get_chunk_wrapper,
+    ),
+    # =========================================================================
+    # WBS 3.3.2.1: Code Review Tool
+    # Pattern: Service proxy (proxies to ai-agents microservice)
+    # =========================================================================
+    "review_code": (
+        ToolDefinition(
+            name="review_code",
+            description="Perform code review on source code. "
+            "Returns findings including issues, suggestions, and best practice violations.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "The source code to review.",
+                    },
+                    "language": {
+                        "type": "string",
+                        "description": "Programming language of the code (default: 'python').",
+                        "default": "python",
+                    },
+                },
+                "required": ["code"],
+            },
+        ),
+        review_code_wrapper,
+    ),
+    # =========================================================================
+    # WBS 3.3.2.2: Architecture Analysis Tool
+    # Pattern: Service proxy (proxies to ai-agents microservice)
+    # =========================================================================
+    "analyze_architecture": (
+        ToolDefinition(
+            name="analyze_architecture",
+            description="Analyze code architecture and design patterns. "
+            "Returns architectural insights, pattern usage, and recommendations.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "The source code to analyze.",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Additional context about the codebase.",
+                        "default": "",
+                    },
+                },
+                "required": ["code"],
+            },
+        ),
+        analyze_architecture_wrapper,
+    ),
+    # =========================================================================
+    # WBS 3.3.2.3: Documentation Generation Tool
+    # Pattern: Service proxy (proxies to ai-agents microservice)
+    # =========================================================================
+    "generate_documentation": (
+        ToolDefinition(
+            name="generate_documentation",
+            description="Generate documentation for source code. "
+            "Returns formatted documentation including descriptions, parameters, and examples.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "The source code to document.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Output format for documentation (e.g., 'markdown', 'rst', 'docstring').",
+                        "default": "markdown",
+                    },
+                },
+                "required": ["code"],
+            },
+        ),
+        generate_documentation_wrapper,
+    ),
+    # =========================================================================
+    # WBS 2.4.3.2: Cross-Reference Tool
+    # Pattern: Service proxy (proxies to ai-agents Cross-Reference Agent)
+    # Kitchen Brigade: Gateway -> ai-agents -> semantic-search
+    # =========================================================================
+    "cross_reference": (
+        ToolDefinition(
+            name="cross_reference",
+            description="Generate cross-references for a source chapter using the Cross-Reference Agent. "
+            "This tool finds related content across the document corpus by traversing the taxonomy graph "
+            "(Spider Web Model) and generates scholarly annotations with Chicago-style citations.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "book": {
+                        "type": "string",
+                        "description": "Source book title (e.g., 'Architecture Patterns with Python').",
+                    },
+                    "chapter": {
+                        "type": "integer",
+                        "description": "Chapter number (1-indexed).",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Chapter title.",
+                    },
+                    "tier": {
+                        "type": "integer",
+                        "description": "Tier level: 1=Architecture, 2=Implementation, 3=Practices.",
+                        "enum": [1, 2, 3],
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Chapter content text (optional, can be retrieved by agent).",
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Extracted keywords from the chapter.",
+                        "default": [],
+                    },
+                    "concepts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Key concepts from the chapter.",
+                        "default": [],
+                    },
+                    "max_hops": {
+                        "type": "integer",
+                        "description": "Maximum traversal depth in the taxonomy graph (default: 3).",
+                        "default": 3,
+                    },
+                    "min_similarity": {
+                        "type": "number",
+                        "description": "Minimum similarity threshold for matches (default: 0.7).",
+                        "default": 0.7,
+                    },
+                    "include_tier1": {
+                        "type": "boolean",
+                        "description": "Include Tier 1 (Architecture Spine) results (default: true).",
+                        "default": True,
+                    },
+                    "include_tier2": {
+                        "type": "boolean",
+                        "description": "Include Tier 2 (Implementation) results (default: true).",
+                        "default": True,
+                    },
+                    "include_tier3": {
+                        "type": "boolean",
+                        "description": "Include Tier 3 (Engineering Practices) results (default: true).",
+                        "default": True,
+                    },
+                    "taxonomy_id": {
+                        "type": "string",
+                        "description": "Taxonomy identifier (default: 'ai-ml').",
+                        "default": "ai-ml",
+                    },
+                },
+                "required": ["book", "chapter", "title", "tier"],
+            },
+        ),
+        cross_reference_wrapper,
+    ),
+    # =========================================================================
+    # WBS MSE-6: Enrich Metadata Tool (MSEP)
+    # Pattern: Service proxy (proxies to ai-agents MSEP endpoint)
+    # Kitchen Brigade: External apps -> Gateway -> ai-agents
+    # =========================================================================
+    "enrich_metadata": (
+        ToolDefinition(
+            name="enrich_metadata",
+            description="Enrich book chapter metadata using MSEP (Multi-Stage Enrichment Pipeline). "
+            "Extracts keywords, identifies topics, and generates cross-references between chapters "
+            "using semantic similarity. Returns enriched metadata with provenance tracking.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "corpus": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of document texts (one per chapter) to enrich.",
+                    },
+                    "chapter_index": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "book": {"type": "string"},
+                                "chapter": {"type": "integer"},
+                                "title": {"type": "string"},
+                                "id": {"type": "string"},
+                            },
+                            "required": ["book", "chapter", "title"],
+                        },
+                        "description": "Metadata for each chapter (book, chapter, title).",
+                    },
+                    "config": {
+                        "type": "object",
+                        "properties": {
+                            "threshold": {"type": "number"},
+                            "top_k": {"type": "integer"},
+                            "timeout": {"type": "number"},
+                            "same_topic_boost": {"type": "number"},
+                            "use_dynamic_threshold": {"type": "boolean"},
+                            "enable_hybrid_search": {"type": "boolean"},
+                        },
+                        "description": "Optional MSEP configuration parameters.",
+                    },
+                },
+                "required": ["corpus", "chapter_index"],
+            },
+        ),
+        enrich_metadata_wrapper,
+    ),
 }
 
 
@@ -157,7 +656,7 @@ class ToolExecutorService:
         """Initialize tool executor with builtin tools."""
         self._tools: dict[str, tuple[ToolDefinition, ToolFunction]] = dict(BUILTIN_TOOLS)
 
-    def get_tool(self, name: str) -> Optional[tuple[ToolDefinition, ToolFunction]]:
+    def get_tool(self, name: str) -> tuple[ToolDefinition, ToolFunction] | None:
         """
         Get tool definition and function by name.
 
@@ -182,7 +681,7 @@ class ToolExecutorService:
 
     def validate_arguments(
         self, definition: ToolDefinition, arguments: dict[str, Any]
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """
         Validate arguments against tool schema.
 
@@ -212,9 +711,8 @@ class ToolExecutorService:
                 return False, f"Unknown argument: {arg_name}"
 
             expected_type = properties[arg_name].get("type")
-            if expected_type:
-                if not self._check_type(arg_value, expected_type):
-                    return False, f"Invalid type for '{arg_name}': expected {expected_type}"
+            if expected_type and not self._check_type(arg_value, expected_type):
+                return False, f"Invalid type for '{arg_name}': expected {expected_type}"
 
         return True, None
 
@@ -280,7 +778,12 @@ class ToolExecutorService:
 
         # Execute tool
         try:
-            result = await func(**request.arguments)
+            # Handle both sync and async tool functions (Issue 42-43 fix)
+            # Reference: GUIDELINES pp. 466, 618 - async only when awaiting
+            if inspect.iscoroutinefunction(func):
+                result = await func(**request.arguments)
+            else:
+                result = func(**request.arguments)
             return ToolExecuteResponse(
                 name=request.name,
                 result=result,
@@ -302,7 +805,7 @@ class ToolExecutorService:
 # =============================================================================
 
 # Global service instance (can be overridden in tests)
-_tool_executor: Optional[ToolExecutorService] = None
+_tool_executor: ToolExecutorService | None = None
 
 
 def get_tool_executor() -> ToolExecutorService:
