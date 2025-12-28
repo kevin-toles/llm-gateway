@@ -145,6 +145,24 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # LlamaCpp Local Model Configuration
+    # For Kitchen Brigade Scenario #2: Multi-model orchestration
+    # =========================================================================
+    llamacpp_enabled: bool = Field(
+        default=False,
+        description="Enable LlamaCpp provider for local GGUF models",
+    )
+    llamacpp_models_dir: str = Field(
+        default="/Volumes/NO NAME/LLMs/models",
+        description="Directory containing GGUF model files",
+    )
+    llamacpp_gpu_layers: int = Field(
+        default=-1,
+        ge=-1,
+        description="GPU layers to offload (-1 = all for Metal)",
+    )
+
+    # =========================================================================
     # WBS 2.1.2.1.8: Provider Defaults
     # =========================================================================
     default_provider: str = Field(

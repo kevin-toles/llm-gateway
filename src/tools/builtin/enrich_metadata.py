@@ -214,7 +214,7 @@ async def enrich_metadata(args: dict[str, Any]) -> dict[str, Any]:
         Dictionary containing:
             - chapters: List of enriched chapter metadata
             - processing_time_ms: Time taken to process
-            - total_cross_references: Total cross-references found
+            - total_similar_chapters: Total similar chapters found
 
     Raises:
         EnrichMetadataServiceError: If ai-agents service is unavailable
@@ -256,9 +256,9 @@ async def enrich_metadata(args: dict[str, Any]) -> dict[str, Any]:
         )
 
         logger.info(
-            "Enrich metadata complete: %d chapters, %d total cross-refs, %.0fms",
+            "Enrich metadata complete: %d chapters, %d total similar, %.0fms",
             len(result.get("chapters", [])),
-            result.get("total_cross_references", 0),
+            result.get("total_similar_chapters", 0),
             result.get("processing_time_ms", 0),
         )
         return result

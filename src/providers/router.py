@@ -60,6 +60,10 @@ class ProviderRouter:
         "meta-llama": "openrouter",
         "mistralai": "openrouter",
         "openrouter": "openrouter",
+        # Local GGUF models via llama-cpp-python
+        "local/": "llamacpp",
+        "llamacpp:": "llamacpp",
+        "gguf/": "llamacpp",
     }
 
     def __init__(
@@ -225,6 +229,26 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
                 logger.info("DeepSeek provider registered (Reasoner)")
             except Exception as e:
                 logger.warning(f"Could not initialize DeepSeek provider: {e}")
+
+    # LlamaCpp - Local GGUF models with Metal GPU acceleration
+    if settings.llamacpp_enabled:
+        try:
+            from src.providers.llamacpp import LlamaCppProvider
+            providers["llamacpp"] = LlamaCppProvider(
+                models_dir=settings.llamacpp_models_dir,
+                n_gpu_layers=settings.llamacpp_gpu_layers,
+            )
+            logger.info(
+                f"LlamaCpp provider registered "
+                f"(models_dir={settings.llamacpp_models_dir})"
+            )
+        except ImportError as e:
+            logger.warning(
+                f"Could not initialize LlamaCpp provider - "
+                f"llama-cpp-python not installed: {e}"
+            )
+        except Exception as e:
+            logger.warning(f"Could not initialize LlamaCpp provider: {e}")
 
     # Log available providers
     provider_names = list(providers.keys())
