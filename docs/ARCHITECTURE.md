@@ -47,6 +47,7 @@ The LLM Gateway is a **microservice** that provides a unified API for LLM intera
 | `semantic-search-service` | 8081 | Gateway, platform services |
 | `Code-Orchestrator-Service` | 8083 | Platform services only |
 | `audit-service` | 8084 | Platform services only |
+| `inference-service` | 8085 | Gateway only (local LLM inference) |
 
 ---
 
@@ -266,6 +267,7 @@ llm-gateway/
 │  │ • Anthropic  │  │ • Registry   │  │  │ • Create     │  │ • Rate Limit │   │
 │  │ • OpenAI     │  │ • Execution  │  │  │ • Retrieve   │  │ • Caching    │   │
 │  │ • Ollama     │  │ • Routing    │  │  │ • Delete     │  │ • Cost Track │   │
+│  │ • LlamaCpp   │  │ • Taxonomy   │  │  │ • Taxonomy   │  │              │   │
 │  └──────┬───────┘  └──────┬───────┘  │  └──────┬───────┘  └──────────────┘   │
 │         │                 │          │         │                              │
 └─────────┼─────────────────┼──────────┼─────────┼──────────────────────────────┘
@@ -422,8 +424,51 @@ Routes requests to the appropriate LLM provider based on model name or configura
 |------------|------|---------|
 | Redis | Infrastructure | Session storage, caching |
 | semantic-search-service | Microservice | Tool execution for search |
-| Anthropic API | External | LLM provider |
-| OpenAI API | External | LLM provider |
+| inference-service | Microservice | Local LLM inference (llamacpp provider) |
+| Anthropic API | External | LLM provider (cloud) |
+| OpenAI API | External | LLM provider (cloud) |
+
+---
+
+## Provider Routing
+
+The gateway routes LLM requests to the appropriate provider based on the `model` parameter:
+
+### Provider Resolution
+
+| Model Pattern | Provider | Target |
+|---------------|----------|--------|
+| `claude-*`, `anthropic/*` | Anthropic | Anthropic API |
+| `gpt-*`, `openai/*` | OpenAI | OpenAI API |
+| `ollama/*` | Ollama | Local Ollama server |
+| `local/*`, GGUF models | LlamaCpp | inference-service:8085 |
+
+### LlamaCpp Provider (Local Inference)
+
+The `llamacpp` provider routes requests to `inference-service:8085` for local GGUF model inference:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                    LlamaCpp Provider → Inference Service                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Gateway receives:                                                           │
+│  POST /v1/chat/completions                                                  │
+│  { "model": "local/phi-4", "messages": [...] }                              │
+│                                                                              │
+│  Provider Router identifies: model prefix "local/" → LlamaCppProvider       │
+│                                                                              │
+│  LlamaCppProvider proxies to:                                               │
+│  POST http://inference-service:8085/v1/chat/completions                     │
+│  { "model": "phi-4", "messages": [...] }                                    │
+│                                                                              │
+│  Supported models (via inference-service):                                  │
+│  - phi-4 (8.4GB)              - deepseek-r1-7b (4.7GB)                      │
+│  - qwen2.5-7b (4.5GB)         - llama-3.2-3b (2.0GB)                        │
+│  - phi-3-medium-128k (8.6GB)  - granite-8b-code-128k (4.5GB)                │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
