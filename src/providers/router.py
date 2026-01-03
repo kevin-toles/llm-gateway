@@ -174,6 +174,83 @@ class ProviderRouter:
         return list(self._providers.keys())
 
 
+def _register_openai(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
+    """Register OpenAI provider if API key is available."""
+    if settings.openai_api_key is None:
+        return
+    openai_key = settings.openai_api_key.get_secret_value()
+    if not openai_key:
+        return
+    from src.providers.openai import OpenAIProvider
+    providers["openai"] = OpenAIProvider(api_key=openai_key)
+    logger.info("OpenAI provider registered")
+
+
+def _register_openrouter(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
+    """Register OpenRouter provider if API key is available."""
+    if settings.openrouter_api_key is None:
+        return
+    openrouter_key = settings.openrouter_api_key.get_secret_value()
+    if not openrouter_key:
+        return
+    from src.providers.openrouter import OpenRouterProvider
+    providers["openrouter"] = OpenRouterProvider(api_key=openrouter_key)
+    logger.info("OpenRouter provider registered (Qwen POC)")
+
+
+def _register_anthropic(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
+    """Register Anthropic provider if API key is available."""
+    if settings.anthropic_api_key is None:
+        return
+    anthropic_key = settings.anthropic_api_key.get_secret_value()
+    if not anthropic_key:
+        return
+    try:
+        from src.providers.anthropic import AnthropicProvider
+        providers["anthropic"] = AnthropicProvider(api_key=anthropic_key)
+        logger.info("Anthropic provider registered")
+    except Exception as e:
+        logger.warning(f"Could not initialize Anthropic provider: {e}")
+
+
+def _register_deepseek(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
+    """Register DeepSeek provider if API key is available."""
+    if settings.deepseek_api_key is None:
+        return
+    deepseek_key = settings.deepseek_api_key.get_secret_value()
+    if not deepseek_key:
+        return
+    try:
+        from src.providers.deepseek import DeepSeekProvider
+        providers["deepseek"] = DeepSeekProvider(api_key=deepseek_key)
+        logger.info("DeepSeek provider registered (Reasoner)")
+    except Exception as e:
+        logger.warning(f"Could not initialize DeepSeek provider: {e}")
+
+
+def _register_llamacpp(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
+    """Register LlamaCpp provider if enabled."""
+    if not settings.llamacpp_enabled:
+        return
+    try:
+        from src.providers.llamacpp import LlamaCppProvider
+        providers["llamacpp"] = LlamaCppProvider(
+            models_dir=settings.llamacpp_models_dir,
+            n_gpu_layers=settings.llamacpp_gpu_layers,
+        )
+        logger.info(
+            f"LlamaCpp provider registered "
+            f"(models_dir={settings.llamacpp_models_dir})"
+        )
+    except ImportError as e:
+        logger.warning(
+            f"Could not initialize LlamaCpp provider - "
+            f"llama-cpp-python not installed: {e}"
+        )
+    except Exception as e:
+        logger.warning(f"Could not initialize LlamaCpp provider: {e}")
+
+
 def create_provider_router(settings: "Settings") -> ProviderRouter:
     """Create a provider router from settings.
 
@@ -192,76 +269,21 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
     """
     providers: dict[str, LLMProvider] = {}
 
-    # OpenAI - for GPT models (POC: gpt-4o)
-    if settings.openai_api_key is not None:
-        openai_key = settings.openai_api_key.get_secret_value()
-        if openai_key:
-            from src.providers.openai import OpenAIProvider
-            providers["openai"] = OpenAIProvider(api_key=openai_key)
-            logger.info("OpenAI provider registered")
+    _register_openai(settings, providers)
+    _register_openrouter(settings, providers)
+    _register_anthropic(settings, providers)
+    _register_deepseek(settings, providers)
+    _register_llamacpp(settings, providers)
 
-    # OpenRouter - for Qwen (POC: qwen/qwen3-coder)
-    if settings.openrouter_api_key is not None:
-        openrouter_key = settings.openrouter_api_key.get_secret_value()
-        if openrouter_key:
-            from src.providers.openrouter import OpenRouterProvider
-            providers["openrouter"] = OpenRouterProvider(api_key=openrouter_key)
-            logger.info("OpenRouter provider registered (Qwen POC)")
-
-    # Anthropic - optional, not required for POC
-    if settings.anthropic_api_key is not None:
-        anthropic_key = settings.anthropic_api_key.get_secret_value()
-        if anthropic_key:
-            try:
-                from src.providers.anthropic import AnthropicProvider
-                providers["anthropic"] = AnthropicProvider(api_key=anthropic_key)
-                logger.info("Anthropic provider registered")
-            except Exception as e:
-                logger.warning(f"Could not initialize Anthropic provider: {e}")
-
-    # DeepSeek - for Reasoner and other models
-    if settings.deepseek_api_key is not None:
-        deepseek_key = settings.deepseek_api_key.get_secret_value()
-        if deepseek_key:
-            try:
-                from src.providers.deepseek import DeepSeekProvider
-                providers["deepseek"] = DeepSeekProvider(api_key=deepseek_key)
-                logger.info("DeepSeek provider registered (Reasoner)")
-            except Exception as e:
-                logger.warning(f"Could not initialize DeepSeek provider: {e}")
-
-    # LlamaCpp - Local GGUF models with Metal GPU acceleration
-    if settings.llamacpp_enabled:
-        try:
-            from src.providers.llamacpp import LlamaCppProvider
-            providers["llamacpp"] = LlamaCppProvider(
-                models_dir=settings.llamacpp_models_dir,
-                n_gpu_layers=settings.llamacpp_gpu_layers,
-            )
-            logger.info(
-                f"LlamaCpp provider registered "
-                f"(models_dir={settings.llamacpp_models_dir})"
-            )
-        except ImportError as e:
-            logger.warning(
-                f"Could not initialize LlamaCpp provider - "
-                f"llama-cpp-python not installed: {e}"
-            )
-        except Exception as e:
-            logger.warning(f"Could not initialize LlamaCpp provider: {e}")
-
-    # Log available providers
     provider_names = list(providers.keys())
     logger.info(f"Provider router initialized with: {provider_names}")
-    
+
     if not providers:
         logger.error(
             "No LLM providers available! Set OPENAI_API_KEY and OPENROUTER_API_KEY "
             "environment variables for the POC."
         )
 
-    return ProviderRouter(
-        providers=providers,
-        default_provider=settings.default_provider if settings.default_provider in providers else None,
-    )
+    default = settings.default_provider if settings.default_provider in providers else None
+    return ProviderRouter(providers=providers, default_provider=default)
 

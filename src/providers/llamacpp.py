@@ -49,6 +49,15 @@ from src.providers.base import LLMProvider
 logger = logging.getLogger(__name__)
 
 
+def _normalize_stop_param(stop: str | list[str] | None) -> list[str] | None:
+    """Normalize stop parameter to list format expected by llama-cpp."""
+    if stop is None:
+        return None
+    if isinstance(stop, list):
+        return stop
+    return [stop]
+
+
 # =============================================================================
 # Custom Exception Classes
 # NOTE: Named with LlamaCpp prefix to avoid shadowing Python builtins
@@ -219,33 +228,7 @@ class LlamaCppProvider(LLMProvider):
         
         return model_dir / model_file
     
-    async def load_model(
-        self,
-        model_alias: str,
-        n_ctx: Optional[int] = None,
-        force_reload: bool = False,
-    ) -> bool:
-        """
-        Load a model into memory.
-        
-        This method loads a GGUF model using llama-cpp-python with Metal
-        GPU acceleration. Models are cached for reuse.
-        
-        Args:
-            model_alias: Model to load (e.g., "phi-4")
-            n_ctx: Context length (overrides config default)
-            force_reload: Force reload even if already loaded
-            
-        Returns:
-            True if model loaded successfully
-            
-        Raises:
-            LlamaCppModelNotFoundError: If model file not found
-            LlamaCppModelLoadError: If model fails to load
-        """
-        if model_alias in self._loaded_models and not force_reload:
-            logger.debug(f"Model {model_alias} already loaded")
-            return True
+    async def load_model(\n        self,\n        model_alias: str,\n        n_ctx: Optional[int] = None,\n        force_reload: bool = False,\n    ) -> None:\n        \"\"\"\n        Load a model into memory.\n        \n        This method loads a GGUF model using llama-cpp-python with Metal\n        GPU acceleration. Models are cached for reuse.\n        \n        Args:\n            model_alias: Model to load (e.g., \"phi-4\")\n            n_ctx: Context length (overrides config default)\n            force_reload: Force reload even if already loaded\n            \n        Raises:\n            LlamaCppModelNotFoundError: If model file not found\n            LlamaCppModelLoadError: If model fails to load\n        \"\"\"\n        if model_alias in self._loaded_models and not force_reload:\n            logger.debug(f\"Model {model_alias} already loaded\")\n            return
         
         model_path = self._get_model_path(model_alias)
         if not model_path or not model_path.exists():
@@ -275,11 +258,7 @@ class LlamaCppProvider(LLMProvider):
                 )
             )
             
-            self._loaded_models[model_alias] = llm
-            logger.info(f"✅ Model {model_alias} loaded successfully")
-            return True
-            
-        except Exception as e:
+            self._loaded_models[model_alias] = llm\n            logger.info(f\"✅ Model {model_alias} loaded successfully\")\n            \n        except Exception as e:
             logger.error(f"❌ Failed to load model {model_alias}: {e}")
             raise LlamaCppModelLoadError(f"Failed to load {model_alias}: {e}") from e
     
@@ -339,6 +318,9 @@ class LlamaCppProvider(LLMProvider):
         messages = self._build_messages(request)
         
         try:
+            # Prepare stop parameter
+            stop_param = _normalize_stop_param(request.stop)
+            
             # Run inference in thread pool
             loop = asyncio.get_event_loop()
             output = await loop.run_in_executor(
@@ -348,9 +330,7 @@ class LlamaCppProvider(LLMProvider):
                     max_tokens=request.max_tokens or 512,
                     temperature=request.temperature or 0.7,
                     top_p=request.top_p or 0.95,
-                    stop=request.stop if isinstance(request.stop, list) else (
-                        [request.stop] if request.stop else None
-                    ),
+                    stop=stop_param,
                 )
             )
             
@@ -387,15 +367,16 @@ class LlamaCppProvider(LLMProvider):
         created = int(time.time())
         
         try:
+            # Prepare stop parameter
+            stop_param = _normalize_stop_param(request.stop)
+            
             # Create streaming generator
             stream_gen = llm.create_chat_completion(
                 messages=messages,
                 max_tokens=request.max_tokens or 512,
                 temperature=request.temperature or 0.7,
                 top_p=request.top_p or 0.95,
-                stop=request.stop if isinstance(request.stop, list) else (
-                    [request.stop] if request.stop else None
-                ),
+                stop=stop_param,
                 stream=True,
             )
             
