@@ -18,6 +18,154 @@ This document tracks all implementation changes, their rationale, and git commit
 
 ---
 
+## 2026-01-01
+
+### CL-040: Deploy Config and Architecture Documentation Update
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2026-01-01 |
+| **WBS Item** | Platform Consolidation (PCON-9) |
+| **Change Type** | Documentation |
+| **Summary** | Updated deployment configuration and architecture documentation to reflect platform consolidation changes and inference-service integration. |
+| **Files Changed** | `deploy/`, `docs/ARCHITECTURE.md` |
+| **Rationale** | Align documentation with PCON-9 platform consolidation requirements |
+| **Git Commit** | `5168361` |
+
+---
+
+## 2025-12-31
+
+### CL-039: Tiered Network Architecture Update
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-31 |
+| **WBS Item** | Infrastructure |
+| **Change Type** | Feature |
+| **Summary** | Updated Gateway for tiered network architecture. Gateway now routes to services on ai-platform-network. |
+| **Files Changed** | `docker-compose.yml`, network configuration |
+| **Rationale** | Enable Gateway to route requests to services connected to canonical databases |
+| **Git Commit** | `6a58766` |
+
+**Network Topology:**
+```
+llm-gateway:8080 (Router)
+    ├── ai-platform-network → ai-agents:8082, semantic-search:8081
+    ├── gateway-network → internal Redis
+    └── llamacpp provider → inference-service:8085
+```
+
+---
+
+## 2025-12-27
+
+### CL-038: LlamaCpp Provider and Routing Config
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-27 |
+| **WBS Item** | Provider Integration |
+| **Change Type** | Feature |
+| **Summary** | Added LlamaCpp provider for routing requests to inference-service:8085. Updated routing configuration for local model inference. |
+| **Files Changed** | `src/providers/llamacpp.py`, `src/config/routing.py` |
+| **Rationale** | Enable Gateway to route to local inference-service for phi-4, deepseek-r1-7b, qwen2.5-7b models |
+| **Git Commit** | `99d7579` |
+
+**LlamaCpp Provider Features:**
+- OpenAI-compatible API translation
+- Routes to `http://inference-service:8085/v1/chat/completions`
+- Supports all models loaded in inference-service
+- Health check integration
+
+**Routing Configuration:**
+```python
+# Models routed to LlamaCpp provider
+"phi-4": LlamaCppProvider,
+"deepseek-r1-7b": LlamaCppProvider,
+"qwen2.5-7b": LlamaCppProvider,
+"llama-3.2-3b": LlamaCppProvider,
+```
+
+---
+
+## 2025-12-25
+
+### CL-037: Gateway Integration Merge - DeepSeek, GPT-5.2, Claude Opus 4
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-25 |
+| **WBS Item** | Provider Integration |
+| **Change Type** | Feature |
+| **Summary** | Merged feature/gateway-integration branch. Includes DeepSeek provider, GPT-5.2, Claude Opus 4, and Gateway-first architecture patterns. |
+| **Files Changed** | `src/providers/deepseek.py`, `src/providers/openrouter.py`, `src/config/` |
+| **Rationale** | Consolidate provider integrations and establish Gateway-first communication patterns |
+| **Git Commit** | `86960df` |
+
+**Providers Added:**
+| Provider | Models | Status |
+|----------|--------|--------|
+| DeepSeek | deepseek-chat, deepseek-coder | ✅ Active |
+| OpenRouter | gpt-5.2, claude-opus-4 | ✅ Active |
+| LlamaCpp | Local models | ✅ Active |
+
+---
+
+## 2025-12-24
+
+### CL-036: DeepSeek Provider and Models API Route
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-24 |
+| **WBS Item** | Provider Integration |
+| **Change Type** | Feature |
+| **Summary** | Added DeepSeek provider for DeepSeek API access and models API route for listing available models. |
+| **Files Changed** | `src/providers/deepseek.py`, `src/api/routes/models.py` |
+| **Rationale** | Enable access to DeepSeek models (deepseek-chat, deepseek-coder) via Gateway |
+| **Git Commit** | `06e53ea` |
+
+---
+
+## 2025-12-21
+
+### CL-035: GPT-5.2, Claude Opus 4, OpenRouter Providers
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-21 |
+| **WBS Item** | Provider Integration |
+| **Change Type** | Feature |
+| **Summary** | Added OpenRouter provider supporting GPT-5.2 and Claude Opus 4. These frontier models are accessed via OpenRouter API. |
+| **Files Changed** | `src/providers/openrouter.py`, `src/config/models.py` |
+| **Rationale** | Enable access to latest frontier models via OpenRouter aggregator |
+| **Git Commit** | `a18f7f3` |
+
+**Models Added:**
+| Model | Provider | Context | Use Case |
+|-------|----------|---------|----------|
+| gpt-5.2 | OpenRouter | 200K | Complex reasoning, multi-step tasks |
+| claude-opus-4 | OpenRouter | 500K | Extended context, document analysis |
+
+---
+
+## 2025-12-20
+
+### CL-034.1: CircuitBreaker Parameter Fix
+
+| Field | Value |
+|-------|-------|
+| **Date/Time** | 2025-12-20 |
+| **WBS Item** | Bug Fix |
+| **Change Type** | Fix |
+| **Summary** | Updated CircuitBreaker parameters to match current API. Fixed parameter naming inconsistency. |
+| **Files Changed** | `src/core/circuit_breaker.py` |
+| **Rationale** | CircuitBreaker initialization was failing due to outdated parameter names |
+| **Git Commit** | `1598125` |
+
+---
+
 ## 2025-12-19
 
 ### CL-034: Gateway-First Communication Pattern Documentation

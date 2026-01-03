@@ -60,7 +60,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
-    restart: unless-stopped
+    restart: "no"  # Manual control via Platform Control Panel
     networks:
       - gateway-network
       - data-network
@@ -85,7 +85,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
-    restart: unless-stopped
+    restart: "no"  # Manual control via Platform Control Panel
     networks:
       - llm-network
     # WBS 3.4.2.2: Only in full-stack and integration-test profiles
@@ -140,7 +140,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    restart: unless-stopped
+    restart: "no"  # Manual control via Platform Control Panel
     networks:
       - llm-network
     extra_hosts:
@@ -200,7 +200,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    restart: unless-stopped
+    restart: "no"  # Manual control via Platform Control Panel
     networks:
       - llm-network
     # WBS 3.4.2.2: Only in full-stack and integration-test profiles (not gateway-only)
@@ -245,7 +245,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    restart: unless-stopped
+    restart: "no"  # Manual control via Platform Control Panel
     networks:
       - gateway-network
       - ai-platform-network
