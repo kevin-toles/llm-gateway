@@ -1,0 +1,91 @@
+# =============================================================================
+# LLM Gateway - Staging Overlay
+# =============================================================================
+# Staging environment customizations:
+# - Production-like configuration for testing
+# - Moderate resource allocation
+# - Info-level logging
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# =============================================================================
+# Base Reference
+# =============================================================================
+resources:
+  - ../../base
+
+# =============================================================================
+# Namespace Override
+# =============================================================================
+namespace: llm-services
+
+# =============================================================================
+# Common Labels for Staging
+# =============================================================================
+commonLabels:
+  environment: staging
+
+# =============================================================================
+# Images - Staging Tag
+# =============================================================================
+images:
+  - name: llm-gateway
+    newName: llm-gateway
+    newTag: staging
+
+# =============================================================================
+# Patches - Staging Overrides
+# =============================================================================
+patches:
+  # ---------------------------------------------------------------------------
+  # Deployment Patches
+  # ---------------------------------------------------------------------------
+  - target:
+      kind: Deployment
+      name: llm-gateway
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: "200m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+
+  # ---------------------------------------------------------------------------
+  # HPA Patches - Moderate scaling for staging
+  # ---------------------------------------------------------------------------
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: llm-gateway
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 5
+
+  # ---------------------------------------------------------------------------
+  # ConfigMap Patches - Staging environment settings
+  # ---------------------------------------------------------------------------
+  - target:
+      kind: ConfigMap
+      name: llm-gateway-config
+    patch: |-
+      - op: replace
+        path: /data/LLM_GATEWAY_ENV
+        value: "staging"
+      - op: replace
+        path: /data/LLM_GATEWAY_LOG_LEVEL
+        value: "INFO"
+      - op: replace
+        path: /data/LLM_GATEWAY_WORKERS
+        value: "2"
