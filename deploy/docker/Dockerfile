@@ -27,10 +27,12 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Install Python dependencies
+# Use requirements-docker.txt which excludes llama-cpp-python (needs native Metal compilation)
+# Docker deployment uses inference-service:8085 for LLM inference instead
 WORKDIR /build
-COPY requirements.txt .
+COPY requirements-docker.txt .
 RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip install -r requirements-docker.txt
 
 # ==============================================================================
 # Stage 2: Production Runtime
