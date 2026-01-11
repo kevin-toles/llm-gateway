@@ -16,10 +16,14 @@ Anti-Patterns Avoided:
 
 import logging
 import os
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
+
+# WBS-PS5: Memory health metrics
+from src.api.middleware.memory import get_memory_health
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -38,6 +42,15 @@ class HealthResponse(BaseModel):
 
     status: str
     version: str
+
+
+class DetailedHealthResponse(BaseModel):
+    """Detailed health check response with memory metrics (WBS-PS5)."""
+    
+    status: str
+    version: str
+    memory: Optional[dict[str, Any]] = None
+    backpressure: Optional[dict[str, Any]] = None
 
 
 class ReadinessResponse(BaseModel):
@@ -487,6 +500,30 @@ async def health_check() -> HealthResponse:
         HealthResponse: Health status and version
     """
     return HealthResponse(status="healthy", version=APP_VERSION)
+
+
+@router.get("/health/detailed", response_model=DetailedHealthResponse)
+async def detailed_health_check() -> DetailedHealthResponse:
+    """
+    Detailed health check endpoint with memory metrics (WBS-PS5).
+
+    Returns memory usage, backpressure status, and overall health.
+    Use this endpoint for debugging OOM issues and monitoring memory pressure.
+
+    Returns:
+        DetailedHealthResponse: Health status with memory/backpressure details
+    """
+    mem_health = get_memory_health()
+    
+    # Status is degraded if under memory pressure
+    status = mem_health.get("status", "healthy")
+    
+    return DetailedHealthResponse(
+        status=status,
+        version=APP_VERSION,
+        memory=mem_health.get("memory"),
+        backpressure=mem_health.get("backpressure"),
+    )
 
 
 # =============================================================================

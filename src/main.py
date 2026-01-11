@@ -16,6 +16,9 @@ from typing import Any, AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# Import middleware - WBS-PS5: Memory tracking and backpressure
+from src.api.middleware.memory import MemoryMiddleware, memory_tracker
+
 # Import routers - WBS 2.1.1.1.4, 2.2.1, 2.2.2, 2.2.3, 2.2.4, 2.2.5
 from src.api.routes.health import router as health_router
 from src.api.routes.chat import router as chat_router
@@ -137,6 +140,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# WBS-PS5: Memory tracking and backpressure middleware
+# Prevents OOM by rejecting requests when memory exceeds threshold
+# or when concurrent request limit is reached
+app.add_middleware(MemoryMiddleware)
 
 # Include routers - WBS 2.1.1.1.4
 app.include_router(health_router)

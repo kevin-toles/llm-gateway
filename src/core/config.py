@@ -208,6 +208,32 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # WBS-PS5: Memory and Backpressure Configuration
+    # =========================================================================
+    memory_threshold_mb: int = Field(
+        default=1024,
+        ge=256,
+        description="Memory threshold in MB - requests rejected above this",
+    )
+    memory_soft_limit_percent: float = Field(
+        default=0.8,
+        ge=0.5,
+        le=1.0,
+        description="Soft limit as percentage of threshold - starts load shedding",
+    )
+    max_concurrent_requests: int = Field(
+        default=50,
+        ge=1,
+        le=1000,
+        description="Maximum concurrent requests (backpressure semaphore)",
+    )
+    queue_warning_threshold: int = Field(
+        default=30,
+        ge=1,
+        description="Queue depth that triggers warning logs",
+    )
+
+    # =========================================================================
     # WBS 2.1.2.1.11: Environment Prefix Configuration
     # =========================================================================
     model_config = {
