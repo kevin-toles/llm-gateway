@@ -88,6 +88,11 @@ class Settings(BaseSettings):
         default="http://localhost:11434",
         description="URL of the local Ollama instance",
     )
+    inference_service_url: str = Field(
+        default="http://host.docker.internal:8085",
+        description="URL of the inference-service for local GGUF models",
+        validation_alias="INFERENCE_SERVICE_URL",
+    )
 
     # =========================================================================
     # WBS 3.2.3.2: Timeout Configuration
@@ -143,6 +148,11 @@ class Settings(BaseSettings):
         description="DeepSeek API key for Reasoner and other models",
         validation_alias="DEEPSEEK_API_KEY",
     )
+    gemini_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="Google Gemini API key for Gemini models",
+        validation_alias="GEMINI_API_KEY",
+    )
 
     # =========================================================================
     # LlamaCpp Local Model Configuration
@@ -153,7 +163,7 @@ class Settings(BaseSettings):
         description="Enable LlamaCpp provider for local GGUF models",
     )
     llamacpp_models_dir: str = Field(
-        default="/Volumes/NO NAME/LLMs/models",
+        default="/Users/kevintoles/POC/ai-models/models",
         description="Directory containing GGUF model files",
     )
     llamacpp_gpu_layers: int = Field(

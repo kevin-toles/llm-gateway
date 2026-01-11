@@ -47,10 +47,6 @@ PROVIDER_NAME = "deepseek"
 SUPPORTED_MODELS = [
     # Reasoner model - best for complex reasoning tasks
     "deepseek-reasoner",
-    # Chat model - general purpose
-    "deepseek-chat",
-    # Coder model - code generation
-    "deepseek-coder",
 ]
 
 
@@ -170,9 +166,14 @@ class DeepSeekProvider(LLMProvider):
     ) -> ChatCompletionResponse:
         """Execute the actual completion request."""
         try:
+            # Strip prefix if present (e.g., "deepseek-api/deepseek-chat" -> "deepseek-chat")
+            model = request.model
+            if model.startswith("deepseek-api/"):
+                model = model[len("deepseek-api/"):]
+            
             # Build request parameters
             params: dict[str, Any] = {
-                "model": request.model,
+                "model": model,
                 "messages": [m.model_dump() for m in request.messages],
             }
 
@@ -257,8 +258,13 @@ class DeepSeekProvider(LLMProvider):
             ChatCompletionChunk objects as they arrive.
         """
         try:
+            # Strip prefix if present (e.g., "deepseek-api/deepseek-chat" -> "deepseek-chat")
+            model = request.model
+            if model.startswith("deepseek-api/"):
+                model = model[len("deepseek-api/"):]
+            
             params: dict[str, Any] = {
-                "model": request.model,
+                "model": model,
                 "messages": [m.model_dump() for m in request.messages],
                 "stream": True,
             }

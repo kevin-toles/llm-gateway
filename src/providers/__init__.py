@@ -24,6 +24,7 @@ from src.providers.openai import (
     OpenAIToolHandler,
 )
 from src.providers.openrouter import OpenRouterProvider
+from src.providers.gemini import GeminiProvider, GeminiToolHandler
 from src.core.exceptions import (
     ProviderError,
     RateLimitError,
@@ -46,6 +47,8 @@ __all__ = [
     "OpenAIProvider",
     "OpenAIToolHandler",
     "OpenRouterProvider",
+    "GeminiProvider",
+    "GeminiToolHandler",
     "ProviderError",
     "RateLimitError",
     "AuthenticationError",

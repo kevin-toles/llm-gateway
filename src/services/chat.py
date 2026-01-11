@@ -126,6 +126,28 @@ class ChatService:
         Raises:
             ChatServiceError: If provider not found or session not found.
         """
+        # Resolve model aliases (e.g., "openai" -> "gpt-5.2")
+        resolved_model = self._router.resolve_model_alias(request.model)
+        if resolved_model != request.model:
+            # Create new request with resolved model
+            request = ChatCompletionRequest(
+                model=resolved_model,
+                messages=request.messages,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+                top_p=request.top_p,
+                n=request.n,
+                stream=request.stream,
+                stop=request.stop,
+                presence_penalty=request.presence_penalty,
+                frequency_penalty=request.frequency_penalty,
+                tools=request.tools,
+                tool_choice=request.tool_choice,
+                user=request.user,
+                seed=request.seed,
+                session_id=request.session_id,
+            )
+        
         # WBS 2.6.1.1.6: Get provider from router
         try:
             provider = self._router.get_provider(request.model)

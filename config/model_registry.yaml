@@ -1,0 +1,177 @@
+# =============================================================================
+# CANONICAL MODEL REGISTRY
+# =============================================================================
+# Categories:
+#   1. LOCAL - inference-service:8085 (DEFAULT for all local models)
+#   2. LOCAL_EXPLICIT - ollama:11434 (requires "ollama/" prefix)
+#   3. EXTERNAL_OWNED - APIs you pay for (OpenAI, Anthropic, Google)
+#   4. EXTERNAL_AGGREGATOR - Pass-through APIs (OpenRouter) - EXPLICIT ONLY
+#
+# RULES:
+#   - Local models ALWAYS route to inference-service (no cloud fallback)
+#   - External owned APIs auto-route by model name prefix
+#   - Aggregators (OpenRouter, DeepSeek API) require explicit prefix
+#   - Ollama requires "ollama/" prefix (local but explicit)
+# =============================================================================
+
+providers:
+  # =========================================================================
+  # LOCAL: inference-service:8085 (llama-cpp-python + Metal GPU)
+  # DEFAULT for all local LLM requests - runs on YOUR hardware
+  # =========================================================================
+  inference:
+    category: local
+    url: "${INFERENCE_SERVICE_URL:-http://host.docker.internal:8085}"
+    models:
+      # Primary/General Purpose
+      - phi-4
+      - qwen2.5-7b
+      - qwen3-8b
+      - llama-3.2-3b
+      - gpt-oss-20b
+      
+      # Reasoning/Thinker
+      - deepseek-r1-7b
+      - phi-3-medium-128k
+      
+      # Code-Specialized
+      - codellama-7b-instruct
+      - codellama-13b
+      - qwen2.5-coder-7b
+      - qwen3-coder-30b
+      - starcoder2-7b
+      - codegemma-7b
+      - deepseek-coder-v2-lite
+      - granite-8b-code-128k
+      - granite-20b-code
+
+  # =========================================================================
+  # LOCAL_EXPLICIT: ollama:11434 (requires "ollama/" prefix)
+  # Must explicitly request: "ollama/mistral:7b"
+  # =========================================================================
+  ollama:
+    category: local_explicit
+    explicit_only: true
+    prefix: "ollama/"
+    url: "${OLLAMA_URL:-http://host.docker.internal:11434}"
+    # Models pulled via `ollama pull <model>`
+    # User must request: "ollama/mistral:7b", "ollama/llama3.2:3b", etc.
+
+  # =========================================================================
+  # EXTERNAL_OWNED: APIs you have keys for (auto-route by model name)
+  # =========================================================================
+  anthropic:
+    category: external_owned
+    env_key: ANTHROPIC_API_KEY
+    models:
+      - claude-opus-4.5
+      - claude-sonnet-4.5
+
+  openai:
+    category: external_owned
+    env_key: OPENAI_API_KEY
+    models:
+      - gpt-5.2
+      - gpt-5.2-pro
+      - gpt-5-mini
+      - gpt-5-nano
+
+  google:
+    category: external_owned
+    env_key: GOOGLE_API_KEY
+    models:
+      - gemini-2.0-flash
+      - gemini-1.5-pro
+      - gemini-1.5-flash
+      - gemini-pro
+
+  # =========================================================================
+  # EXTERNAL_AGGREGATOR: Pass-through APIs - EXPLICIT PREFIX REQUIRED
+  # These NEVER auto-route. Must use prefix syntax.
+  # =========================================================================
+  openrouter:
+    category: external_aggregator
+    explicit_only: true
+    prefix: "openrouter/"
+    env_key: OPENROUTER_API_KEY
+
+  deepseek_api:
+    category: external_aggregator
+    explicit_only: true
+    prefix: "deepseek-api/"
+    env_key: DEEPSEEK_API_KEY
+
+# =============================================================================
+# ROUTING RULES (processed in order)
+# =============================================================================
+routing:
+  # 1. Explicit prefixes (aggregators and ollama) - MUST BE FIRST
+  - pattern: "openrouter/*"
+    provider: openrouter
+  - pattern: "deepseek-api/*"
+    provider: deepseek_api
+  - pattern: "ollama/*"
+    provider: ollama
+
+  # 2. ALL local inference-service models (exact matches)
+  # Primary/General
+  - pattern: "phi-4"
+    provider: inference
+  - pattern: "qwen2.5-7b"
+    provider: inference
+  - pattern: "qwen3-8b"
+    provider: inference
+  - pattern: "llama-3.2-3b"
+    provider: inference
+  - pattern: "gpt-oss-20b"
+    provider: inference
+  # Reasoning
+  - pattern: "deepseek-r1-7b"
+    provider: inference
+  - pattern: "phi-3-medium-128k"
+    provider: inference
+  # Code-Specialized
+  - pattern: "codellama-7b-instruct"
+    provider: inference
+  - pattern: "codellama-13b"
+    provider: inference
+  - pattern: "qwen2.5-coder-7b"
+    provider: inference
+  - pattern: "qwen3-coder-30b"
+    provider: inference
+  - pattern: "starcoder2-7b"
+    provider: inference
+  - pattern: "codegemma-7b"
+    provider: inference
+  - pattern: "deepseek-coder-v2-lite"
+    provider: inference
+  - pattern: "granite-8b-code-128k"
+    provider: inference
+  - pattern: "granite-20b-code"
+    provider: inference
+
+  # 3. External owned APIs (auto-route - you have keys)
+  # Anthropic
+  - pattern: "claude-opus-4.5"
+    provider: anthropic
+  - pattern: "claude-sonnet-4.5"
+    provider: anthropic
+  - pattern: "claude-*"
+    provider: anthropic
+  # OpenAI
+  - pattern: "gpt-5.2"
+    provider: openai
+  - pattern: "gpt-5.2-pro"
+    provider: openai
+  - pattern: "gpt-5-mini"
+    provider: openai
+  - pattern: "gpt-5-nano"
+    provider: openai
+  - pattern: "gpt-*"
+    provider: openai
+  # Google
+  - pattern: "gemini-*"
+    provider: google
+
+  # 4. Default: inference-service (try local first for unknown models)
+  default: inference

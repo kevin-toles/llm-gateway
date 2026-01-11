@@ -49,11 +49,15 @@ from src.providers.base import LLMProvider
 # WBS 2.3.2.1.7: Supported Models
 # =============================================================================
 
-
+# Official Anthropic model IDs
+# Reference: https://docs.anthropic.com/en/docs/about-claude/models
 SUPPORTED_MODELS = [
-    # Claude 4 variants
+    # Claude 4 / 4.5 variants (May 2025)
+    # Official: claude-opus-4-20250514, but users may use claude-opus-4-5-20250514
     "claude-opus-4-20250514",
+    "claude-opus-4-5-20250514",    # Alias: Claude Opus 4.5
     "claude-sonnet-4-20250514",
+    "claude-sonnet-4-5-20250514",  # Alias: Claude Sonnet 4.5
     # Claude 3.5 variants
     "claude-3-5-sonnet-20241022",
     "claude-3-5-haiku-20241022",
@@ -67,6 +71,16 @@ SUPPORTED_MODELS = [
     # Claude Instant (legacy)
     "claude-instant-1.2",
 ]
+
+# Model ID aliases - maps user-friendly IDs to official Anthropic IDs
+# Anthropic API uses different IDs than what users might expect
+MODEL_ALIASES = {
+    # Claude 4.5 aliases (users say "4.5", Anthropic API uses "4")
+    "claude-opus-4-5-20250514": "claude-opus-4-20250514",
+    "claude-sonnet-4-5-20250514": "claude-sonnet-4-20250514",
+    "claude-opus-4.5": "claude-opus-4-20250514",
+    "claude-sonnet-4.5": "claude-sonnet-4-20250514",
+}
 
 
 # =============================================================================
@@ -668,8 +682,11 @@ class AnthropicProvider(LLMProvider):
             system = messages[0].get("content", "")
             messages = messages[1:]
 
+        # Resolve model alias to official Anthropic model ID
+        model = MODEL_ALIASES.get(request.model, request.model)
+
         kwargs: dict[str, Any] = {
-            "model": request.model,
+            "model": model,
             "messages": messages,
             "max_tokens": request.max_tokens or 1024,
         }

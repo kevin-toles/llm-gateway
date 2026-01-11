@@ -42,28 +42,87 @@ class ProviderRouter:
         >>> # Returns anthropic_provider
     """
 
-    # Model prefix to provider name mapping
+    # ==========================================================================
+    # MODEL ROUTING TABLE
+    # ==========================================================================
+    # Categories:
+    #   1. LOCAL (inference-service) - Default for all local GGUF models
+    #   2. EXTERNAL_OWNED - Your API keys (OpenAI, Anthropic, Google)
+    #   3. EXTERNAL_AGGREGATOR - Explicit prefix only (openrouter/, ollama/)
+    #
+    # RULE: OpenRouter is NEVER auto-routed. Must use "openrouter/" prefix.
+    # RULE: Ollama requires "ollama/" prefix.
+    # ==========================================================================
+    
+    # Exact model matches for local inference-service (checked first)
+    LOCAL_MODELS = {
+        # Primary/General
+        "phi-4", "qwen2.5-7b", "qwen3-8b", "llama-3.2-3b", "gpt-oss-20b",
+        # Reasoning
+        "deepseek-r1-7b", "phi-3-medium-128k",
+        # Code-Specialized
+        "codellama-7b-instruct", "codellama-13b", "qwen2.5-coder-7b",
+        "qwen3-coder-30b", "starcoder2-7b", "codegemma-7b",
+        "deepseek-coder-v2-lite", "granite-8b-code-128k", "granite-20b-code",
+    }
+    
+    # Exact model matches for external owned APIs
+    EXTERNAL_MODELS = {
+        # Anthropic (your API key) - support both naming conventions
+        "claude-opus-4.5": "anthropic",
+        "claude-sonnet-4.5": "anthropic",
+        "claude-opus-4-5-20250514": "anthropic",    # User's preferred ID
+        "claude-sonnet-4-5-20250514": "anthropic",  # User's preferred ID
+        "claude-opus-4-20250514": "anthropic",     # Official Anthropic ID
+        "claude-sonnet-4-20250514": "anthropic",   # Official Anthropic ID
+        # OpenAI (your API key)
+        "gpt-5.2": "openai",
+        "gpt-5.2-pro": "openai",
+        "gpt-5-mini": "openai",
+        "gpt-5-nano": "openai",
+        # Google (your API key)
+        "gemini-2.0-flash": "google",
+        "gemini-1.5-pro": "google",
+        "gemini-1.5-flash": "google",
+        "gemini-pro": "google",
+        # DeepSeek (your API key) - direct model access
+        "deepseek-reasoner": "deepseek",
+    }
+    
+    # Prefix routing for cloud providers (fallback after exact match)
     MODEL_PREFIXES = {
-        "claude": "anthropic",
-        "gpt": "openai",
-        "o1": "openai",
-        "o3": "openai",
-        "llama": "ollama",
-        "mistral": "ollama",
-        "codellama": "ollama",
-        "gemma": "ollama",
-        "phi": "ollama",
-        # DeepSeek models (native API)
-        "deepseek": "deepseek",
-        # OpenRouter models (POC for local LLMs)
-        "qwen": "openrouter",
-        "meta-llama": "openrouter",
-        "mistralai": "openrouter",
-        "openrouter": "openrouter",
-        # Local GGUF models via llama-cpp-python
+        # External owned - auto-route by prefix
+        "claude-": "anthropic",
+        "gpt-": "openai",
+        "gemini-": "google",
+        
+        # External aggregators - EXPLICIT PREFIX REQUIRED
+        "openrouter/": "openrouter",  # Must use: openrouter/model-name
+        "ollama/": "ollama",          # Must use: ollama/model-name
+        "deepseek-api/": "deepseek",  # Must use: deepseek-api/model-name
+        
+        # Legacy support
         "local/": "llamacpp",
         "llamacpp:": "llamacpp",
         "gguf/": "llamacpp",
+    }
+    
+    # Fallback defaults - when user requests just a provider/alias name
+    # Maps shorthand names to the recommended default model
+    PROVIDER_DEFAULTS = {
+        # OpenAI shortcuts
+        "openai": "gpt-5.2",
+        "chatgpt": "gpt-5.2",
+        "gpt": "gpt-5.2",
+        # Anthropic shortcuts - use the -5- format users expect
+        "anthropic": "claude-opus-4-5-20250514",
+        "claude": "claude-opus-4-5-20250514",
+        # DeepSeek shortcuts
+        "deepseek": "deepseek-api/deepseek-reasoner",
+        "reasoner": "deepseek-api/deepseek-reasoner",
+        # Google shortcuts
+        "google": "gemini-1.5-pro",
+        "gemini": "gemini-1.5-pro",
     }
 
     def __init__(
@@ -93,11 +152,16 @@ class ProviderRouter:
     def get_provider(self, model: str) -> LLMProvider:
         """Get the appropriate provider for the given model.
 
-        Routes based on model name prefix. Falls back to default provider
-        if no prefix match is found.
+        Routing Priority:
+        0. Provider alias defaults (openai, chatgpt, claude, etc.)
+        1. Explicit prefix (openrouter/, ollama/) - strips prefix
+        2. Exact match in LOCAL_MODELS -> inference provider
+        3. Exact match in EXTERNAL_MODELS -> specific provider
+        4. Prefix match in MODEL_PREFIXES -> specific provider
+        5. Default provider (inference-service)
 
         Args:
-            model: The model name to route (e.g., "claude-3-5-sonnet-20241022").
+            model: The model name to route (e.g., "qwen2.5-7b", "openrouter/mistral").
 
         Returns:
             The LLMProvider instance for the model.
@@ -108,23 +172,76 @@ class ProviderRouter:
         if not self._providers:
             raise NoProviderError("No providers registered")
 
-        # Try to match model prefix
         model_lower = model.lower()
+        
+        # 0. Check provider alias defaults (e.g., "openai" -> "gpt-5.2")
+        if model_lower in self.PROVIDER_DEFAULTS:
+            actual_model = self.PROVIDER_DEFAULTS[model_lower]
+            logger.info(f"Alias '{model}' -> default model '{actual_model}'")
+            # Recursively route the actual model
+            return self.get_provider(actual_model)
+        
+        # 1. Check explicit aggregator prefixes (openrouter/, ollama/)
+        #    These MUST have prefix to be used - they're never auto-routed
+        for prefix in ["openrouter/", "ollama/", "deepseek-api/"]:
+            if model_lower.startswith(prefix):
+                provider_name = self.MODEL_PREFIXES.get(prefix)
+                if provider_name and provider_name in self._providers:
+                    logger.info(f"Routing {model} to {provider_name} (explicit prefix)")
+                    return self._providers[provider_name]
+                    
+        # 2. Check exact match in LOCAL_MODELS -> inference-service
+        if model_lower in self.LOCAL_MODELS or model in self.LOCAL_MODELS:
+            if "inference" in self._providers:
+                logger.info(f"Routing {model} to inference-service (local model)")
+                return self._providers["inference"]
+                
+        # 3. Check exact match in EXTERNAL_MODELS
+        if model in self.EXTERNAL_MODELS:
+            provider_name = self.EXTERNAL_MODELS[model]
+            if provider_name in self._providers:
+                logger.info(f"Routing {model} to {provider_name} (external owned)")
+                return self._providers[provider_name]
+                
+        # 4. Check prefix match for external owned APIs (claude-, gpt-, gemini-)
         for prefix, provider_name in self.MODEL_PREFIXES.items():
             if model_lower.startswith(prefix):
                 if provider_name in self._providers:
+                    logger.info(f"Routing {model} to {provider_name} (prefix match)")
                     return self._providers[provider_name]
 
-        # Fall back to default provider
-        if self._default_provider:
-            if self._default_provider not in self._providers:
-                raise NoProviderError(
-                    f"Default provider '{self._default_provider}' not registered"
-                )
+        # 5. Default to inference-service for unknown models
+        #    This prevents accidental routing to OpenRouter
+        if "inference" in self._providers:
+            logger.warning(f"Unknown model {model}, defaulting to inference-service")
+            return self._providers["inference"]
+            
+        # 6. Fall back to default provider if inference not available
+        if self._default_provider and self._default_provider in self._providers:
+            logger.warning(f"Unknown model {model}, using default: {self._default_provider}")
             return self._providers[self._default_provider]
 
-        # Fall back to first registered provider
-        return next(iter(self._providers.values()))
+        raise NoProviderError(f"No provider found for model: {model}")
+
+    def resolve_model_alias(self, model: str) -> str:
+        """Resolve a model alias to the actual model name.
+        
+        If the model is an alias (e.g., 'openai', 'chatgpt', 'claude'),
+        returns the default model for that provider. Otherwise returns
+        the model unchanged.
+        
+        Args:
+            model: The model name or alias.
+            
+        Returns:
+            The resolved model name.
+        """
+        model_lower = model.lower()
+        if model_lower in self.PROVIDER_DEFAULTS:
+            resolved = self.PROVIDER_DEFAULTS[model_lower]
+            logger.info(f"Resolved alias '{model}' -> '{resolved}'")
+            return resolved
+        return model
 
     def list_available_models(self) -> list[str]:
         """List all available models from all registered providers.
@@ -174,6 +291,21 @@ class ProviderRouter:
         return list(self._providers.keys())
 
 
+def _register_inference(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
+    """Register Inference Service provider for local models.
+    
+    This is the PRIMARY provider for local LLMs (qwen2.5-7b, deepseek-r1-7b, phi-4).
+    Routes to inference-service:8085 running on the local machine.
+    """
+    inference_url = getattr(settings, 'inference_service_url', 'http://localhost:8085')
+    try:
+        from src.providers.inference import InferenceServiceProvider
+        providers["inference"] = InferenceServiceProvider(base_url=inference_url)
+        logger.info(f"Inference provider registered (url={inference_url})")
+    except Exception as e:
+        logger.warning(f"Could not initialize Inference provider: {e}")
+
+
 def _register_openai(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
     """Register OpenAI provider if API key is available."""
     if settings.openai_api_key is None:
@@ -187,7 +319,11 @@ def _register_openai(settings: "Settings", providers: dict[str, LLMProvider]) ->
 
 
 def _register_openrouter(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
-    """Register OpenRouter provider if API key is available."""
+    """Register OpenRouter provider (external cloud API).
+    
+    OpenRouter is ONLY used when explicitly requested with 'openrouter/' prefix.
+    It is NOT used for local models like qwen2.5-7b - those go to inference-service.
+    """
     if settings.openrouter_api_key is None:
         return
     openrouter_key = settings.openrouter_api_key.get_secret_value()
@@ -195,7 +331,7 @@ def _register_openrouter(settings: "Settings", providers: dict[str, LLMProvider]
         return
     from src.providers.openrouter import OpenRouterProvider
     providers["openrouter"] = OpenRouterProvider(api_key=openrouter_key)
-    logger.info("OpenRouter provider registered (Qwen POC)")
+    logger.info("OpenRouter provider registered (use 'openrouter/' prefix to invoke)")
 
 
 def _register_anthropic(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
@@ -228,6 +364,22 @@ def _register_deepseek(settings: "Settings", providers: dict[str, LLMProvider]) 
         logger.warning(f"Could not initialize DeepSeek provider: {e}")
 
 
+def _register_gemini(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
+    """Register Gemini provider if API key is available."""
+    if settings.gemini_api_key is None:
+        return
+    gemini_key = settings.gemini_api_key.get_secret_value()
+    if not gemini_key:
+        return
+    try:
+        from src.providers.gemini import GeminiProvider
+        # Register as "google" to match EXTERNAL_MODELS and MODEL_PREFIXES routing
+        providers["google"] = GeminiProvider(api_key=gemini_key)
+        logger.info("Google/Gemini provider registered")
+    except Exception as e:
+        logger.warning(f"Could not initialize Gemini provider: {e}")
+
+
 def _register_llamacpp(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
     """Register LlamaCpp provider if enabled."""
     if not settings.llamacpp_enabled:
@@ -257,9 +409,13 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
     Factory function that instantiates providers based on available
     API keys in settings and creates a router with them.
 
-    POC Configuration (per INTER_AI_ORCHESTRATION.md):
-    - OpenAI: GPT-4o (gpt-4o)
-    - OpenRouter: Qwen (qwen/qwen3-coder)
+    Provider Routing:
+    - inference: LOCAL models (qwen2.5-7b, deepseek-r1-7b, phi-4) → inference-service:8085
+    - openai: GPT models → OpenAI API
+    - anthropic: Claude models → Anthropic API  
+    - deepseek: DeepSeek cloud API (deepseek-chat, deepseek-reasoner)
+    - gemini: Google Gemini → Google AI API
+    - openrouter: ONLY when explicitly requested with 'openrouter/' prefix
 
     Args:
         settings: Application settings containing API keys and defaults.
@@ -269,10 +425,19 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
     """
     providers: dict[str, LLMProvider] = {}
 
+    # Register inference provider FIRST - this is the default for local models
+    _register_inference(settings, providers)
+    
+    # Cloud providers
     _register_openai(settings, providers)
-    _register_openrouter(settings, providers)
     _register_anthropic(settings, providers)
     _register_deepseek(settings, providers)
+    _register_gemini(settings, providers)
+    
+    # OpenRouter - only for explicit requests
+    _register_openrouter(settings, providers)
+    
+    # Legacy local providers
     _register_llamacpp(settings, providers)
 
     provider_names = list(providers.keys())
@@ -280,8 +445,9 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
 
     if not providers:
         logger.error(
-            "No LLM providers available! Set OPENAI_API_KEY and OPENROUTER_API_KEY "
-            "environment variables for the POC."
+            "No LLM providers available! Ensure inference-service is running "
+            "or set API keys for cloud providers."
+
         )
 
     default = settings.default_provider if settings.default_provider in providers else None

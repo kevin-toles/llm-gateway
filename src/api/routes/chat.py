@@ -341,6 +341,21 @@ async def create_chat_completion(
         JSONResponse 502: Provider error (upstream failure)
     """
     logger.debug(f"Chat completion request: model={request.model}, stream={request.stream}")
+    
+    # Check for Responses API models - they should use /v1/responses endpoint
+    RESPONSES_API_MODELS = {"gpt-5.2-pro", "gpt-5.1-pro", "gpt-5-pro", "o3", "o3-mini", "o1", "o1-mini", "o1-preview"}
+    if request.model in RESPONSES_API_MODELS:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": {
+                    "message": f"Model '{request.model}' uses the Responses API and is not supported "
+                              f"in the v1/chat/completions endpoint. Please use POST /v1/responses instead.",
+                    "type": "invalid_request_error",
+                    "code": "model_not_supported",
+                }
+            },
+        )
 
     try:
         if request.stream:

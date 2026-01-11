@@ -146,14 +146,14 @@ class LlamaCppProvider(LLMProvider):
         
     Example:
         >>> provider = LlamaCppProvider(
-        ...     models_dir="/Volumes/NO NAME/LLMs/models"
+        ...     models_dir="/Users/kevintoles/POC/ai-models/models"
         ... )
         >>> await provider.load_model("phi-4")
         >>> response = await provider.complete(request)
         >>> await provider.unload_model("phi-4")
     """
     
-    DEFAULT_MODELS_DIR = "/Volumes/NO NAME/LLMs/models"
+    DEFAULT_MODELS_DIR = "/Users/kevintoles/POC/ai-models/models"
     DEFAULT_CONTEXT_LENGTH = 4096
     DEFAULT_GPU_LAYERS = -1  # -1 = use all available (Metal)
     

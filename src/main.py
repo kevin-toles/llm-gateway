@@ -22,6 +22,7 @@ from src.api.routes.chat import router as chat_router
 from src.api.routes.sessions import router as sessions_router
 from src.api.routes.tools import router as tools_router
 from src.api.routes.models import router as models_router
+from src.api.routes.responses import router as responses_router
 
 # Application metadata
 APP_NAME = "LLM Gateway"
@@ -143,6 +144,7 @@ app.include_router(chat_router)
 app.include_router(sessions_router)
 app.include_router(tools_router)
 app.include_router(models_router)
+app.include_router(responses_router)
 
 
 # =============================================================================
