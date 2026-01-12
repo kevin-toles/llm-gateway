@@ -53,23 +53,8 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 SUPPORTED_MODELS = [
-    # Gemini 2.5 (Latest - January 2026)
     "gemini-2.5-pro",
-    "gemini-2.5-pro-preview-05-06",
     "gemini-2.5-flash",
-    # Gemini 2.0
-    "gemini-2.0-flash-exp",
-    "gemini-2.0-flash",
-    "gemini-2.0-pro",
-    # Gemini 1.5
-    "gemini-1.5-pro",
-    "gemini-1.5-pro-latest",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash-8b",
-    # Gemini 1.0 (Legacy)
-    "gemini-1.0-pro",
-    "gemini-pro",
 ]
 
 # Default API base URL

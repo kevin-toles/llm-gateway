@@ -15,6 +15,13 @@ Anti-Patterns Avoided:
 - ANTI_PATTERN_ANALYSIS §1.1: Optional types with explicit None
 - ANTI_PATTERN_ANALYSIS §3.1: No bare except clauses
 - ANTI_PATTERN_ANALYSIS §4.1: Cognitive complexity < 15 per function
+
+CMS Integration (WBS-CMS11):
+- AC-11.1: Gateway routes Tier 2+ requests to CMS
+- AC-11.2: X-CMS-Mode header protocol implemented
+- AC-11.3: X-CMS-Routed response header set
+- AC-11.4: Tier 3+ returns 503 when CMS unavailable
+- AC-11.5: Fast token estimation in Gateway
 """
 
 import os
@@ -23,7 +30,7 @@ import uuid
 import logging
 from typing import Optional, AsyncGenerator, Union
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request, Header
 from fastapi.responses import StreamingResponse, JSONResponse
 
 from src.core.exceptions import ProviderError
@@ -36,6 +43,20 @@ from src.models.responses import (
     ChatCompletionChunk,
     ChunkChoice,
     ChunkDelta,
+)
+
+# CMS Routing Imports (WBS-CMS11)
+from src.api.routes.cms_routing import (
+    calculate_tier,
+    parse_cms_mode,
+    should_route_to_cms,
+    get_cms_action,
+    build_cms_response_headers,
+    cms_required_for_tier,
+    handle_cms_unavailable,
+    estimate_tokens_from_messages,
+    get_context_limit,
+    get_cms_client_instance,
 )
 
 
@@ -313,6 +334,7 @@ router = APIRouter(prefix="/v1/chat", tags=["Chat"])
 async def create_chat_completion(
     request: ChatCompletionRequest,
     chat_service: RealChatService = Depends(get_chat_service),
+    x_cms_mode: Optional[str] = Header(None, alias="X-CMS-Mode"),
 ) -> ChatCompletionResponse | StreamingResponse | JSONResponse:
     """
     Create a chat completion (streaming or non-streaming).
@@ -321,6 +343,13 @@ async def create_chat_completion(
     WBS 2.2.2.3.2: Returns OpenAI-compatible response
     WBS 2.2.2.3.9: Provider errors return 502 Bad Gateway
     WBS 2.2.3.2.1: Supports streaming with stream=true
+    
+    CMS Integration (WBS-CMS11):
+    - AC-11.1: Gateway routes Tier 2+ requests to CMS
+    - AC-11.2: X-CMS-Mode header protocol implemented
+    - AC-11.3: X-CMS-Routed response header set
+    - AC-11.4: Tier 3+ returns 503 when CMS unavailable
+    - AC-11.5: Fast token estimation in Gateway
 
     Pattern: Dependency injection for service layer (Sinha p. 90)
     Pattern: Pydantic request validation (Sinha pp. 193-195)
@@ -330,6 +359,7 @@ async def create_chat_completion(
     Args:
         request: Chat completion request with messages and parameters
         chat_service: Injected chat service dependency
+        x_cms_mode: Optional CMS mode header (none|validate|optimize|plan|auto)
 
     Returns:
         ChatCompletionResponse: Full response (non-streaming)
@@ -338,6 +368,7 @@ async def create_chat_completion(
 
     Raises:
         HTTPException 422: Request validation failed
+        HTTPException 503: CMS unavailable for Tier 3+
         JSONResponse 502: Provider error (upstream failure)
     """
     logger.debug(f"Chat completion request: model={request.model}, stream={request.stream}")
@@ -357,15 +388,127 @@ async def create_chat_completion(
             },
         )
 
+    # ==========================================================================
+    # CMS Integration (WBS-CMS11)
+    # ==========================================================================
+    
+    # AC-11.5: Fast token estimation
+    messages_for_estimation = [
+        {"role": m.role, "content": m.content or ""} for m in request.messages
+    ]
+    token_count = estimate_tokens_from_messages(messages_for_estimation, request.model)
+    context_limit = get_context_limit(request.model)
+    
+    # AC-11.1: Calculate tier
+    tier = calculate_tier(token_count, context_limit)
+    
+    # AC-11.2: Parse CMS mode header
+    cms_mode = parse_cms_mode(x_cms_mode)
+    
+    # Determine if we should route to CMS
+    route_to_cms = should_route_to_cms(tier, cms_mode)
+    cms_routed = False
+    
+    if route_to_cms:
+        # Get CMS client
+        cms_client = get_cms_client_instance()
+        
+        # Check CMS availability
+        cms_available = await cms_client.health_check()
+        
+        if not cms_available:
+            # AC-11.4: Tier 3+ requires CMS - return 503
+            if cms_required_for_tier(tier):
+                handle_cms_unavailable(tier)
+            # Tier 1-2 can proceed without CMS (graceful degradation)
+            logger.warning(f"CMS unavailable, degrading gracefully for tier {tier}")
+        else:
+            # CMS is available, process the request
+            cms_action = get_cms_action(tier, cms_mode)
+            
+            if cms_action != "none":
+                try:
+                    # Build text from messages for CMS processing
+                    combined_text = "\n".join(
+                        f"{m.role}: {m.content}" for m in request.messages if m.content
+                    )
+                    
+                    # Call CMS
+                    cms_result = await cms_client.process(
+                        text=combined_text,
+                        model=request.model,
+                    )
+                    
+                    cms_routed = True
+                    
+                    # Update token count with actual from CMS
+                    token_count = cms_result.optimized_tokens
+                    
+                    logger.info(
+                        f"CMS processed: tier={tier}, action={cms_action}, "
+                        f"compression={cms_result.compression_ratio:.1%}"
+                    )
+                    
+                    # Apply CMS optimized text to request messages
+                    # CMS returns optimized text in format "role: content\nrole: content"
+                    # For optimization, we merge all into a single user message since
+                    # the LLM context is what matters for token efficiency
+                    if cms_result.compression_ratio > 0 and not cms_result.rolled_back:
+                        # Create a new messages list with optimized content
+                        # Keep system message intact, replace user messages with optimized
+                        optimized_messages = []
+                        for msg in request.messages:
+                            if msg.role == "system":
+                                # Preserve system messages unchanged
+                                optimized_messages.append(msg)
+                        
+                        # Add the optimized user content as final message
+                        # Import Message from models to create new message
+                        from src.models.requests import Message
+                        optimized_messages.append(Message(
+                            role="user",
+                            content=cms_result.optimized_text,
+                        ))
+                        
+                        # Update request with optimized messages
+                        request = request.model_copy(update={"messages": optimized_messages})
+                        
+                        logger.debug(
+                            f"Applied CMS optimization: {len(request.messages)} messages, "
+                            f"tokens {cms_result.original_tokens}→{cms_result.optimized_tokens}"
+                        )
+                    
+                except Exception as e:
+                    logger.error(f"CMS processing failed: {e}")
+                    # For Tier 3+, this is critical
+                    if cms_required_for_tier(tier):
+                        handle_cms_unavailable(tier)
+                    # Tier 1-2 continues without CMS
+    
+    # AC-11.3: Build response headers
+    cms_headers = build_cms_response_headers(
+        routed=cms_routed,
+        tier=tier,
+        token_count=token_count,
+        token_limit=context_limit,
+    )
+
     try:
         if request.stream:
             return StreamingResponse(
                 _stream_sse_generator(chat_service, request),
                 media_type="text/event-stream",
+                headers=cms_headers,
             )
 
         # Issue 27: Real ChatService uses complete(), not create_completion()
-        return await chat_service.complete(request)
+        response = await chat_service.complete(request)
+        
+        # Add CMS headers to non-streaming response
+        return JSONResponse(
+            content=response.model_dump(),
+            headers=cms_headers,
+        )
 
     except ProviderError as e:
         # WBS 2.2.2.3.9: Translate provider errors to 502 Bad Gateway

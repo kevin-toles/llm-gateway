@@ -42,6 +42,8 @@ class HealthResponse(BaseModel):
 
     status: str
     version: str
+    models_available: int = 0
+    inference_service: str = "unknown"
 
 
 class DetailedHealthResponse(BaseModel):
@@ -49,6 +51,8 @@ class DetailedHealthResponse(BaseModel):
     
     status: str
     version: str
+    models_available: int = 0
+    inference_service: str = "unknown"
     memory: Optional[dict[str, Any]] = None
     backpressure: Optional[dict[str, Any]] = None
 
@@ -58,6 +62,7 @@ class ReadinessResponse(BaseModel):
 
     status: str
     checks: dict[str, bool]
+    models_available: int = 0
 
 
 # =============================================================================
@@ -261,6 +266,54 @@ class HealthService:
             # Anti-pattern §3.1: Log exception, don't silently fail
             logger.warning(f"AI agents health check failed: {e}")
             return False
+
+    async def check_inference_service_health(self) -> tuple[bool, int]:
+        """
+        Check inference-service connectivity and model availability.
+
+        CRITICAL FIX: llm-gateway must report unhealthy when inference-service is down.
+        This prevents protocol execution from timing out on unavailable backend.
+
+        Returns:
+            tuple[bool, int]: (is_healthy, model_count)
+            - is_healthy: True if inference-service is reachable and has models loaded
+            - model_count: Number of models available (0 if service down)
+
+        Pattern: Graceful degradation with accurate status reporting (Newman pp. 352-353)
+        Anti-pattern avoided: §3.1 Bare Except - exceptions logged with context
+        Anti-pattern avoided: §67 Connection pooling - uses context manager
+        """
+        inference_url = os.getenv("INFERENCE_SERVICE_URL", "http://localhost:8085")
+        
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                # Check health first
+                health_response = await client.get(f"{inference_url}/health")
+                if health_response.status_code != 200:
+                    logger.warning(f"Inference service unhealthy: status {health_response.status_code}")
+                    return False, 0
+                
+                # Get model count
+                models_response = await client.get(f"{inference_url}/v1/models")
+                if models_response.status_code == 200:
+                    data = models_response.json()
+                    model_count = len(data.get("data", []))
+                    return True, model_count
+                else:
+                    logger.warning(f"Inference service models endpoint returned {models_response.status_code}")
+                    return True, 0
+
+        except httpx.ConnectError as e:
+            logger.warning(f"Inference service connection failed: {e}")
+            return False, 0
+        except httpx.TimeoutException as e:
+            logger.warning(f"Inference service health check timeout: {e}")
+            return False, 0
+        except Exception as e:
+            logger.warning(f"Inference service health check failed: {e}")
+            return False, 0
 
 
 # =============================================================================
@@ -491,36 +544,67 @@ router = APIRouter(tags=["Health"])
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """
-    Health check endpoint.
+    Health check endpoint - always returns 200.
 
     WBS 2.2.1.1.5: Implement GET /health endpoint
     WBS 2.2.1.1.6: Return {"status": "healthy", "version": "1.0.0"}
+    
+    NOTE: This always returns 200 so startup scripts work.
+    Use /health/ready for detailed readiness checks with 503 on failure.
+    Use /health/detailed for inference-service and model status.
 
     Returns:
         HealthResponse: Health status and version
     """
-    return HealthResponse(status="healthy", version=APP_VERSION)
+    return HealthResponse(
+        status="healthy", 
+        version=APP_VERSION,
+        models_available=0,  # Use /health/detailed for actual count
+        inference_service="unchecked",  # Use /health/detailed
+    )
 
 
 @router.get("/health/detailed", response_model=DetailedHealthResponse)
-async def detailed_health_check() -> DetailedHealthResponse:
+async def detailed_health_check(
+    response: Response,
+    health_service: HealthService = Depends(get_health_service),
+) -> DetailedHealthResponse:
     """
     Detailed health check endpoint with memory metrics (WBS-PS5).
 
-    Returns memory usage, backpressure status, and overall health.
+    Returns memory usage, backpressure status, inference-service status, and overall health.
     Use this endpoint for debugging OOM issues and monitoring memory pressure.
 
     Returns:
-        DetailedHealthResponse: Health status with memory/backpressure details
+        DetailedHealthResponse: Health status with memory/backpressure/inference details
     """
     mem_health = get_memory_health()
+    inference_healthy, model_count = await health_service.check_inference_service_health()
     
-    # Status is degraded if under memory pressure
-    status = mem_health.get("status", "healthy")
+    # Status is degraded if under memory pressure OR inference-service down
+    memory_status = mem_health.get("status", "healthy")
+    
+    if inference_healthy and model_count > 0:
+        inference_status = "up"
+    elif inference_healthy:
+        inference_status = "up_no_models"
+    else:
+        inference_status = "down"
+    
+    # Overall status: worst of memory and inference
+    if memory_status == "degraded" or not inference_healthy or model_count == 0:
+        status = "degraded"
+    else:
+        status = memory_status
+    
+    if not inference_healthy:
+        response.status_code = 503
     
     return DetailedHealthResponse(
         status=status,
         version=APP_VERSION,
+        models_available=model_count,
+        inference_service=inference_status,
         memory=mem_health.get("memory"),
         backpressure=mem_health.get("backpressure"),
     )
@@ -542,6 +626,7 @@ async def readiness_check(
     WBS 2.2.1.2.1: Implement GET /health/ready endpoint
     WBS 2.2.1.2.2: Check Redis connectivity
     WBS 3.2.1.2.1: Add semantic-search health check to gateway readiness
+    CRITICAL FIX: Now includes inference-service in readiness check
     WBS 2.2.1.2.4: Return {"status": "ready"} if all checks pass
     WBS 2.2.1.2.5: Return 503 if dependencies unavailable
     WBS 3.2.1.2.4: Report degraded status if semantic-search unavailable
@@ -559,19 +644,21 @@ async def readiness_check(
     redis_healthy = await health_service.check_redis()
     semantic_search_healthy = await health_service.check_semantic_search_health()
     ai_agents_healthy = await health_service.check_ai_agents_health()
+    inference_healthy, model_count = await health_service.check_inference_service_health()
 
     checks = {
         "redis": redis_healthy,
         "semantic_search": semantic_search_healthy,
         "ai_agents": ai_agents_healthy,
+        "inference_service": inference_healthy,
     }
     
     # WBS 3.3.1.2.3: ai_agents is optional - don't fail readiness if it's down
-    # Only critical services (redis, semantic_search) affect readiness
-    # Reference: ARCHITECTURE.md line 342 - optional services return degraded
+    # CRITICAL: inference_service IS critical for local model protocols
+    # Only redis is truly optional
     critical_checks = {
-        "redis": redis_healthy,
         "semantic_search": semantic_search_healthy,
+        "inference_service": inference_healthy,
     }
     critical_healthy = all(critical_checks.values())
     all_healthy = all(checks.values())
@@ -591,6 +678,7 @@ async def readiness_check(
     return ReadinessResponse(
         status=status,
         checks=checks,
+        models_available=model_count,
     )
 
 

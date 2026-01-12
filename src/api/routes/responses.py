@@ -214,6 +214,8 @@ class ResponsesService:
             return await self._create_anthropic_response(request)
         elif provider_type == "deepseek":
             return await self._create_deepseek_response(request)
+        elif provider_type == "google":
+            return await self._create_google_response(request)
         else:
             return await self._create_openai_response(request)
     
@@ -236,6 +238,11 @@ class ResponsesService:
         # Resolve model aliases (e.g., "openai" -> "gpt-5.2")
         model = ProviderRouter.PROVIDER_DEFAULTS.get(request.model.lower(), request.model)
         
+        # Models that don't support temperature (reasoning models)
+        # GPT-5.2-pro and similar reasoning models don't allow temperature adjustment
+        REASONING_MODELS = {"gpt-5.2-pro", "gpt-5-pro", "o1", "o1-pro", "o1-preview", "o1-mini"}
+        is_reasoning_model = model in REASONING_MODELS or "-pro" in model
+        
         # Build the request payload
         payload: dict[str, Any] = {
             "model": model,
@@ -247,9 +254,10 @@ class ResponsesService:
             payload["instructions"] = request.instructions
         if request.max_output_tokens:
             payload["max_output_tokens"] = request.max_output_tokens
-        if request.temperature is not None:
+        # Temperature not supported for reasoning models
+        if request.temperature is not None and not is_reasoning_model:
             payload["temperature"] = request.temperature
-        if request.top_p is not None:
+        if request.top_p is not None and not is_reasoning_model:
             payload["top_p"] = request.top_p
         if request.tools:
             payload["tools"] = request.tools
@@ -567,6 +575,172 @@ class ResponsesService:
             id=data.get("id", f"resp_{uuid.uuid4().hex[:24]}"),
             object="response",
             created_at=data.get("created", int(time.time())),
+            status="completed",
+            completed_at=int(time.time()),
+            error=None,
+            incomplete_details=None,
+            instructions=None,
+            max_output_tokens=None,
+            model=model,
+            output=output_messages,
+            parallel_tool_calls=True,
+            previous_response_id=None,
+            reasoning=ReasoningConfig(effort=None, summary=None),
+            store=True,
+            temperature=1.0,
+            tool_choice="auto",
+            tools=[],
+            top_p=1.0,
+            truncation="disabled",
+            usage=usage,
+            user=None,
+            metadata={},
+        )
+    
+    async def _create_google_response(self, request: ResponsesRequest) -> ResponsesResponse:
+        """
+        Create a response using the Google Gemini API.
+        
+        This method calls Google's Generative AI API and transforms
+        the response to the OpenAI Responses API format.
+        """
+        from src.core.config import get_settings
+        import httpx
+        
+        settings = get_settings()
+        api_key = settings.gemini_api_key.get_secret_value() if settings.gemini_api_key else ""
+        
+        if not api_key:
+            raise ProviderError("Google/Gemini API key not configured (set GEMINI_API_KEY)", provider="google")
+        
+        model = request.model
+        
+        # Build Gemini-compatible content
+        contents = []
+        
+        # Add system instruction if provided
+        system_instruction = None
+        if request.instructions:
+            system_instruction = {"parts": [{"text": request.instructions}]}
+        
+        # Convert input to Gemini format
+        if isinstance(request.input, str):
+            contents.append({
+                "role": "user",
+                "parts": [{"text": request.input}]
+            })
+        elif isinstance(request.input, list):
+            for item in request.input:
+                if isinstance(item, dict):
+                    role = item.get("role", "user")
+                    content = item.get("content", "")
+                    if isinstance(content, list):
+                        # Handle content array format
+                        text_parts = []
+                        for c in content:
+                            if isinstance(c, dict) and c.get("type") == "input_text":
+                                text_parts.append(c.get("text", ""))
+                            elif isinstance(c, str):
+                                text_parts.append(c)
+                        content = "\n".join(text_parts)
+                    # Map roles: user->user, assistant->model
+                    gemini_role = "model" if role == "assistant" else "user"
+                    contents.append({
+                        "role": gemini_role,
+                        "parts": [{"text": content}]
+                    })
+                elif isinstance(item, str):
+                    contents.append({
+                        "role": "user",
+                        "parts": [{"text": item}]
+                    })
+        
+        # Build the request payload
+        payload: dict[str, Any] = {
+            "contents": contents,
+        }
+        
+        # Add system instruction if present
+        if system_instruction:
+            payload["systemInstruction"] = system_instruction
+        
+        # Add generation config
+        generation_config: dict[str, Any] = {}
+        if request.max_output_tokens:
+            generation_config["maxOutputTokens"] = request.max_output_tokens
+        if request.temperature is not None:
+            generation_config["temperature"] = request.temperature
+        if request.top_p is not None:
+            generation_config["topP"] = request.top_p
+        if generation_config:
+            payload["generationConfig"] = generation_config
+        
+        # Call Google Gemini API
+        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        
+        logger.info(f"Calling Google Gemini API: model={model}")
+        
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                api_url,
+                json=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": api_key,
+                },
+            )
+            
+            if response.status_code != 200:
+                error_body = response.json() if response.content else {}
+                error_msg = error_body.get("error", {}).get("message", response.text)
+                logger.error(f"Google Gemini API error: {response.status_code} - {error_msg}")
+                raise ProviderError(
+                    f"Google API error ({response.status_code}): {error_msg}",
+                    provider="google"
+                )
+            
+            data = response.json()
+        
+        # Parse the response
+        candidates = data.get("candidates", [])
+        text_content = ""
+        if candidates:
+            first_candidate = candidates[0]
+            content_parts = first_candidate.get("content", {}).get("parts", [])
+            if content_parts:
+                text_content = content_parts[0].get("text", "")
+        
+        # Build output messages in Responses API format
+        output_messages = [
+            OutputMessage(
+                type="message",
+                id=f"msg_{uuid.uuid4().hex[:24]}",
+                status="completed",
+                role="assistant",
+                content=[
+                    OutputTextContent(
+                        type="output_text",
+                        text=text_content,
+                        annotations=[],
+                    )
+                ],
+            )
+        ]
+        
+        # Parse usage from metadata
+        usage_metadata = data.get("usageMetadata", {})
+        usage = ResponsesUsage(
+            input_tokens=usage_metadata.get("promptTokenCount", 0),
+            input_tokens_details={"cached_tokens": usage_metadata.get("cachedContentTokenCount", 0)},
+            output_tokens=usage_metadata.get("candidatesTokenCount", 0),
+            output_tokens_details={"reasoning_tokens": 0},
+            total_tokens=usage_metadata.get("totalTokenCount", 0),
+        )
+        
+        return ResponsesResponse(
+            id=f"resp_{uuid.uuid4().hex[:24]}",
+            object="response",
+            created_at=int(time.time()),
             status="completed",
             completed_at=int(time.time()),
             error=None,

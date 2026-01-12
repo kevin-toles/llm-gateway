@@ -1,10 +1,12 @@
-"""Inference Service Provider - Routes to local inference-service:8085.
+"""Inference Service Provider - Routes to local inference-service.
 
 This provider proxies requests to the local inference-service which hosts
 GGUF models running on Metal GPU (qwen2.5-7b, deepseek-r1-7b, phi-4, etc.).
 
 This is the DEFAULT provider for local models. OpenRouter is only used
 when explicitly requested by the user.
+
+URL resolution uses ai_platform_common for infrastructure-aware discovery.
 """
 
 import logging
@@ -18,11 +20,22 @@ from src.models.responses import ChatCompletionResponse, ChatCompletionChunk
 
 logger = logging.getLogger(__name__)
 
-# Default inference service URL
-DEFAULT_INFERENCE_URL = "http://localhost:8085"
 
-# Models typically available in inference-service
-LOCAL_MODELS = [
+def _get_default_inference_url() -> str:
+    """Get inference service URL using ai_platform_common if available.
+    
+    Falls back to localhost:8085 if ai_platform_common is not installed.
+    """
+    try:
+        from ai_platform_common import get_service_url
+        return get_service_url("inference-service")
+    except ImportError:
+        logger.warning("ai_platform_common not installed, using localhost:8085 for inference-service")
+        return "http://localhost:8085"
+
+
+# Fallback models if inference-service is unreachable during init
+FALLBACK_MODELS = [
     "qwen2.5-7b",
     "deepseek-r1-7b",
     "phi-4",
@@ -34,15 +47,14 @@ LOCAL_MODELS = [
 class InferenceServiceProvider(LLMProvider):
     """Provider that proxies to local inference-service.
     
-    This provider routes requests to inference-service:8085 which hosts
+    This provider routes requests to inference-service which hosts
     local GGUF models running on Metal GPU acceleration.
     
-    Supported models (loaded in inference-service):
-    - qwen2.5-7b
-    - deepseek-r1-7b  
-    - phi-4
-    - phi-3-medium-128k
-    - llama-3.2-3b
+    URL is resolved using ai_platform_common.get_service_url() which
+    supports docker/hybrid/native deployment modes.
+    
+    Models are dynamically discovered from the inference-service /v1/models
+    endpoint at initialization time.
     
     Example:
         >>> provider = InferenceServiceProvider()
@@ -51,19 +63,40 @@ class InferenceServiceProvider(LLMProvider):
     
     def __init__(
         self,
-        base_url: str = DEFAULT_INFERENCE_URL,
+        base_url: str | None = None,
         timeout: float = 120.0,
     ) -> None:
         """Initialize the inference service provider.
         
         Args:
-            base_url: URL of the inference service (default: http://localhost:8085)
+            base_url: URL of the inference service. If None, auto-resolved via ai_platform_common.
             timeout: Request timeout in seconds
         """
-        self._base_url = base_url.rstrip("/")
+        self._base_url = (base_url or _get_default_inference_url()).rstrip("/")
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None
-        logger.info(f"InferenceServiceProvider initialized (base_url={base_url})")
+        self._discovered_models: list[str] | None = None
+        
+        # Synchronously discover models at init time
+        self._discover_models_sync()
+        logger.info(f"InferenceServiceProvider initialized (base_url={self._base_url}, models={len(self._discovered_models or [])})")
+    
+    def _discover_models_sync(self) -> None:
+        """Synchronously discover available models from inference-service.
+        
+        Called during __init__ to populate the model list.
+        Falls back to FALLBACK_MODELS if service is unreachable.
+        """
+        try:
+            with httpx.Client(timeout=5.0) as client:
+                response = client.get(f"{self._base_url}/v1/models")
+                response.raise_for_status()
+                data = response.json()
+                self._discovered_models = [m["id"] for m in data.get("data", [])]
+                logger.info(f"Discovered {len(self._discovered_models)} models from inference-service at {self._base_url}")
+        except Exception as e:
+            logger.warning(f"Could not discover models from inference-service ({self._base_url}): {e}. Using fallback list.")
+            self._discovered_models = FALLBACK_MODELS.copy()
     
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client."""
@@ -77,19 +110,16 @@ class InferenceServiceProvider(LLMProvider):
     def supports_model(self, model: str) -> bool:
         """Check if this provider supports the specified model.
         
-        Supports any model that starts with known local model prefixes.
+        Checks against dynamically discovered models from inference-service.
         """
-        model_lower = model.lower()
-        # Check exact matches first
-        if model_lower in [m.lower() for m in LOCAL_MODELS]:
-            return True
-        # Check prefixes for local models
-        local_prefixes = ["qwen", "deepseek-r1", "phi-", "phi3", "phi4", "llama-3"]
-        return any(model_lower.startswith(prefix) for prefix in local_prefixes)
+        if self._discovered_models:
+            model_lower = model.lower()
+            return model_lower in [m.lower() for m in self._discovered_models]
+        return False
     
     def get_supported_models(self) -> list[str]:
-        """Return list of supported model names."""
-        return LOCAL_MODELS.copy()
+        """Return list of supported model names from inference-service."""
+        return (self._discovered_models or FALLBACK_MODELS).copy()
     
     async def complete(
         self, request: ChatCompletionRequest

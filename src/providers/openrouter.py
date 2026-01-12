@@ -48,19 +48,11 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 SUPPORTED_MODELS = [
-    # Qwen models (primary for POC)
     "qwen/qwen3-coder",
     "qwen/qwen-2.5-coder-32b-instruct",
-    "qwen/qwen-2.5-72b-instruct",
-    # Llama models
     "meta-llama/llama-3.1-70b-instruct",
-    "meta-llama/llama-3.1-8b-instruct",
-    # Mistral models
     "mistralai/mistral-large-2411",
     "mistralai/codestral-2501",
-    # DeepSeek models
-    "deepseek/deepseek-chat",
-    "deepseek/deepseek-coder",
 ]
 
 

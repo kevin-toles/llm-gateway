@@ -52,24 +52,8 @@ from src.providers.base import LLMProvider
 # Official Anthropic model IDs
 # Reference: https://docs.anthropic.com/en/docs/about-claude/models
 SUPPORTED_MODELS = [
-    # Claude 4 / 4.5 variants (May 2025)
-    # Official: claude-opus-4-20250514, but users may use claude-opus-4-5-20250514
-    "claude-opus-4-20250514",
-    "claude-opus-4-5-20250514",    # Alias: Claude Opus 4.5
-    "claude-sonnet-4-20250514",
-    "claude-sonnet-4-5-20250514",  # Alias: Claude Sonnet 4.5
-    # Claude 3.5 variants
-    "claude-3-5-sonnet-20241022",
-    "claude-3-5-haiku-20241022",
-    # Claude 3 variants
-    "claude-3-opus-20240229",
-    "claude-3-sonnet-20240229",
-    "claude-3-haiku-20240307",
-    # Claude 2 variants (legacy)
-    "claude-2.1",
-    "claude-2.0",
-    # Claude Instant (legacy)
-    "claude-instant-1.2",
+    "claude-sonnet-4-5-20250514",
+    "claude-opus-4-5-20250514",
 ]
 
 # Model ID aliases - maps user-friendly IDs to official Anthropic IDs

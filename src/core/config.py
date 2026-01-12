@@ -7,18 +7,61 @@ WBS 2.1.2.2: Settings Singleton
 This module provides centralized configuration management using Pydantic Settings.
 All configuration is loaded from environment variables with the LLM_GATEWAY_ prefix.
 
+URL defaults are resolved using ai_platform_common for infrastructure-aware
+discovery (supports docker/hybrid/native deployment modes).
+
 Reference:
 - ARCHITECTURE.md: Settings class structure
 - INTEGRATION_MAP.md: Microservice URLs and environment variables
 - GUIDELINES: Sinha pp. 193-195 - Pydantic BaseSettings pattern
 """
 
+import logging
 from enum import Enum
 from functools import lru_cache
 from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Infrastructure-aware URL resolution
+# =============================================================================
+
+def _get_default_url(service_name: str, fallback: str) -> str:
+    """Get default URL using ai_platform_common if available.
+    
+    This enables infrastructure-aware URL resolution that works across
+    docker/hybrid/native deployment modes.
+    
+    Args:
+        service_name: Service name for ai_platform_common lookup
+        fallback: Fallback URL if ai_platform_common is not installed
+        
+    Returns:
+        Resolved URL
+    """
+    try:
+        from ai_platform_common import get_service_url
+        return get_service_url(service_name)
+    except ImportError:
+        return fallback
+    except KeyError:
+        return fallback
+
+
+def _get_default_db_url(db_name: str, fallback: str) -> str:
+    """Get default database URL using ai_platform_common if available."""
+    try:
+        from ai_platform_common import get_database_url
+        return get_database_url(db_name)
+    except ImportError:
+        return fallback
+    except KeyError:
+        return fallback
 
 
 class Environment(str, Enum):
@@ -63,7 +106,7 @@ class Settings(BaseSettings):
     # WBS 2.1.2.1.5: Redis Configuration
     # =========================================================================
     redis_url: str = Field(
-        default="redis://localhost:6379",
+        default_factory=lambda: _get_default_db_url("redis", "redis://localhost:6379"),
         description="Redis connection URL for sessions and caching",
     )
     redis_pool_size: int = Field(
@@ -75,13 +118,14 @@ class Settings(BaseSettings):
 
     # =========================================================================
     # WBS 2.1.2.1.6: Microservice URLs (per INTEGRATION_MAP.md)
+    # URLs resolved via ai_platform_common for docker/hybrid/native support
     # =========================================================================
     semantic_search_url: str = Field(
-        default="http://localhost:8081",
+        default_factory=lambda: _get_default_url("semantic-search", "http://localhost:8081"),
         description="URL of the semantic-search microservice",
     )
     ai_agents_url: str = Field(
-        default="http://localhost:8082",
+        default_factory=lambda: _get_default_url("ai-agents", "http://localhost:8082"),
         description="URL of the ai-agents microservice",
     )
     ollama_url: str = Field(
@@ -89,9 +133,28 @@ class Settings(BaseSettings):
         description="URL of the local Ollama instance",
     )
     inference_service_url: str = Field(
-        default="http://host.docker.internal:8085",
+        default_factory=lambda: _get_default_url("inference-service", "http://localhost:8085"),
         description="URL of the inference-service for local GGUF models",
         validation_alias="INFERENCE_SERVICE_URL",
+    )
+
+    # =========================================================================
+    # WBS-CMS11: Context Management Service Configuration
+    # =========================================================================
+    cms_url: str = Field(
+        default_factory=lambda: _get_default_url("context-management", "http://localhost:8086"),
+        description="URL of the Context Management Service",
+        validation_alias="CMS_URL",
+    )
+    cms_enabled: bool = Field(
+        default=True,
+        description="Enable CMS integration for token optimization",
+    )
+    cms_timeout_seconds: float = Field(
+        default=5.0,
+        ge=0.5,
+        le=30.0,
+        description="Timeout in seconds for CMS service calls",
     )
 
     # =========================================================================
