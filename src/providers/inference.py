@@ -159,7 +159,7 @@ class InferenceServiceProvider(LLMProvider):
         response.raise_for_status()
         
         result = response.json()
-        logger.debug(f"Inference response received")
+        logger.debug("Inference response received")
         
         # Convert to ChatCompletionResponse
         return ChatCompletionResponse(**result)

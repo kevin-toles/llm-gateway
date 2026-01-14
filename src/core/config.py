@@ -158,6 +158,21 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # WBS-CPA2: Code-Orchestrator Service Configuration
+    # =========================================================================
+    code_orchestrator_url: str = Field(
+        default_factory=lambda: _get_default_url("code-orchestrator", "http://localhost:8083"),
+        description="URL of the Code-Orchestrator Service",
+        validation_alias="CODE_ORCHESTRATOR_URL",
+    )
+    code_orchestrator_timeout_seconds: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=300.0,
+        description="Timeout in seconds for Code-Orchestrator service calls",
+    )
+
+    # =========================================================================
     # WBS 3.2.3.2: Timeout Configuration
     # =========================================================================
     semantic_search_timeout_seconds: float = Field(

@@ -20,7 +20,7 @@ import os
 import resource
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -183,7 +183,7 @@ class MemoryTracker:
             soft_limit_mb=round(soft_limit, 2),
             usage_percent=round((rss_mb / MEMORY_THRESHOLD_MB) * 100, 1) if MEMORY_THRESHOLD_MB > 0 else 0.0,
             gc_count=gc.get_count(),
-            timestamp=datetime.utcnow().isoformat() + "Z",
+            timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             active_requests=self._active_requests,
             max_concurrent=MAX_CONCURRENT_REQUESTS,
             queue_utilization=round(queue_util * 100, 1),
@@ -191,15 +191,12 @@ class MemoryTracker:
             accepting_requests=accepting,
         )
     
-    async def acquire_request_slot(self, timeout: float = 5.0) -> bool:
+    async def acquire_request_slot(self) -> bool:
         """
         Acquire a request slot (backpressure mechanism).
         
         Uses semaphore to limit concurrent requests. If memory is critical,
         rejects immediately without waiting.
-        
-        Args:
-            timeout: Maximum seconds to wait for a slot
             
         Returns:
             True if slot acquired, False if rejected (timeout or memory critical)
@@ -213,23 +210,21 @@ class MemoryTracker:
             self._rejected_requests += 1
             return False
         
-        # Try to acquire semaphore with timeout
+        # Try to acquire semaphore with timeout using context manager
         try:
-            acquired = await asyncio.wait_for(
-                self._request_semaphore.acquire(),
-                timeout=timeout
-            )
-            if acquired:
-                async with self._lock:
-                    self._active_requests += 1
-                    self._total_requests += 1
-                    
-                    # Log warning if queue is getting full
-                    if self._active_requests >= QUEUE_WARNING_THRESHOLD:
-                        logger.warning(
-                            f"High request load: {self._active_requests}/{MAX_CONCURRENT_REQUESTS} active"
-                        )
-                return True
+            async with asyncio.timeout(5.0):
+                acquired = await self._request_semaphore.acquire()
+                if acquired:
+                    async with self._lock:
+                        self._active_requests += 1
+                        self._total_requests += 1
+                        
+                        # Log warning if queue is getting full
+                        if self._active_requests >= QUEUE_WARNING_THRESHOLD:
+                            logger.warning(
+                                f"High request load: {self._active_requests}/{MAX_CONCURRENT_REQUESTS} active"
+                            )
+                    return True
         except asyncio.TimeoutError:
             logger.warning(
                 f"Request rejected: timeout waiting for slot "
@@ -238,6 +233,7 @@ class MemoryTracker:
             self._rejected_requests += 1
             return False
         
+        return False
         return False
     
     async def release_request_slot(self) -> None:
@@ -297,14 +293,14 @@ class MemoryMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         
         # Try to acquire a request slot
-        if not await memory_tracker.acquire_request_slot(timeout=10.0):
+        if not await memory_tracker.acquire_request_slot():
             metrics = memory_tracker.get_metrics()
             return JSONResponse(
                 status_code=503,
                 content={
                     "error": "Service Unavailable",
                     "reason": "backpressure",
-                    "message": f"Server under memory pressure or at capacity",
+                    "message": "Server under memory pressure or at capacity",
                     "memory_mb": metrics.rss_mb,
                     "threshold_mb": metrics.threshold_mb,
                     "active_requests": metrics.active_requests,

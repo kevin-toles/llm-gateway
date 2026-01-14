@@ -35,14 +35,14 @@ class TestCMSClientInit:
         from src.clients.cms_client import CMSClient
         
         client = CMSClient(base_url="http://localhost:8086", timeout_seconds=10.0)
-        assert client.timeout_seconds == 10.0
+        assert client.timeout_seconds == pytest.approx(10.0)
     
     def test_init_default_timeout(self):
         """CMSClient should have default timeout of 5 seconds."""
         from src.clients.cms_client import CMSClient
         
         client = CMSClient(base_url="http://localhost:8086")
-        assert client.timeout_seconds == 5.0
+        assert client.timeout_seconds == pytest.approx(5.0)
 
 
 # =============================================================================
@@ -145,7 +145,7 @@ class TestCMSClientProcess:
         
         assert isinstance(result, CMSProcessResult)
         assert result.optimized_text == "compressed text"
-        assert result.compression_ratio == 0.30
+        assert result.compression_ratio == pytest.approx(0.30)
     
     @pytest.mark.asyncio
     async def test_process_sends_correct_payload(self):

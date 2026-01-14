@@ -78,6 +78,68 @@ pytest tests/ -v
 | `/live` | GET | Liveness check for Kubernetes |
 | `/docs` | GET | OpenAPI documentation (dev only) |
 
+## Gateway Tools
+
+The LLM Gateway exposes the following tools for external clients (MCP, external LLMs, llm-document-enhancer):
+
+### Search Tools
+
+| Tool | Backend Service | Description |
+|------|-----------------|-------------|
+| `search_corpus` | semantic-search-service | Semantic similarity search in document corpus |
+| `hybrid_search` | semantic-search-service | Combined semantic + keyword search (WBS-CPA1) |
+| `get_chunk` | semantic-search-service | Retrieve specific document chunks by ID |
+| `cross_reference` | ai-agents | Multi-source cross-reference search |
+
+### Embedding Tools
+
+| Tool | Backend Service | Description |
+|------|-----------------|-------------|
+| `embed` | semantic-search-service | Generate embedding vectors for texts (WBS-CPA6) |
+| `generate_embeddings` | Code-Orchestrator | Batch embedding generation via SBERT (WBS-CPA2) |
+
+### Analysis Tools
+
+| Tool | Backend Service | Description |
+|------|-----------------|-------------|
+| `compute_similarity` | Code-Orchestrator | Compute cosine similarity between texts (WBS-CPA2) |
+| `extract_keywords` | Code-Orchestrator | Extract TF-IDF keywords from corpus (WBS-CPA2) |
+
+### Metadata Tools
+
+| Tool | Backend Service | Description |
+|------|-----------------|-------------|
+| `enrich_metadata` | ai-agents | MSEP metadata enrichment pipeline |
+
+### Tool Usage Example
+
+```bash
+# Call embed tool via Gateway
+curl -X POST http://localhost:8080/v1/tools/embed \
+  -H "Content-Type: application/json" \
+  -d '{"texts": ["Machine learning is powerful", "Deep learning is a subset"]}'
+
+# Call hybrid_search tool
+curl -X POST http://localhost:8080/v1/tools/hybrid_search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "circuit breaker patterns", "top_k": 5}'
+
+# Call compute_similarity tool
+curl -X POST http://localhost:8080/v1/tools/compute_similarity \
+  -H "Content-Type: application/json" \
+  -d '{"text1": "Hello world", "text2": "Hi there world"}'
+```
+
+### Service URLs Configuration
+
+Backend service URLs can be configured via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_GATEWAY_SEMANTIC_SEARCH_URL` | `http://semantic-search:8081` | Semantic search service URL |
+| `LLM_GATEWAY_AI_AGENTS_URL` | `http://ai-agents:8082` | AI agents service URL |
+| `LLM_GATEWAY_CODE_ORCHESTRATOR_URL` | `http://code-orchestrator:8083` | Code orchestrator service URL |
+
 ## Project Structure
 
 ```

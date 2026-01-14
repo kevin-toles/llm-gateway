@@ -43,6 +43,7 @@ from src.providers.base import LLMProvider
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 PROVIDER_NAME = "deepseek"
+DEEPSEEK_API_PREFIX = "deepseek-api/"
 
 SUPPORTED_MODELS = [
     # Reasoner model - best for complex reasoning tasks
@@ -166,83 +167,93 @@ class DeepSeekProvider(LLMProvider):
     ) -> ChatCompletionResponse:
         """Execute the actual completion request."""
         try:
-            # Strip prefix if present (e.g., "deepseek-api/deepseek-chat" -> "deepseek-chat")
-            model = request.model
-            if model.startswith("deepseek-api/"):
-                model = model[len("deepseek-api/"):]
-            
-            # Build request parameters
-            params: dict[str, Any] = {
-                "model": model,
-                "messages": [m.model_dump() for m in request.messages],
-            }
-
-            # Add optional parameters
-            if request.temperature is not None:
-                params["temperature"] = request.temperature
-            if request.max_tokens is not None:
-                params["max_tokens"] = request.max_tokens
-            if request.top_p is not None:
-                params["top_p"] = request.top_p
-            if request.stop is not None:
-                params["stop"] = request.stop
-
-            # Make the API call
+            model = self._resolve_model_name(request.model)
+            params = self._build_request_params(request, model)
             response = await self._client.chat.completions.create(**params)
-
-            # Convert to our response format
-            # Note: deepseek-reasoner returns content in 'reasoning_content' field
-            choices = []
-            for choice in response.choices:
-                content = choice.message.content or ""
-                # For reasoner model, check reasoning_content if content is empty
-                if not content and hasattr(choice.message, "reasoning_content"):
-                    content = getattr(choice.message, "reasoning_content", "") or ""
-                
-                choices.append(
-                    Choice(
-                        index=choice.index,
-                        message=ChoiceMessage(
-                            role=choice.message.role,
-                            content=content,
-                        ),
-                        finish_reason=choice.finish_reason,
-                    )
-                )
-
-            usage = Usage(
-                prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
-                completion_tokens=response.usage.completion_tokens if response.usage else 0,
-                total_tokens=response.usage.total_tokens if response.usage else 0,
-            )
-
-            # Get created timestamp from response or use current time
-            created = getattr(response, "created", None) or int(time.time())
-
-            return ChatCompletionResponse(
-                id=response.id,
-                model=response.model,
-                created=created,
-                choices=choices,
-                usage=usage,
-            )
+            return self._build_completion_response(response)
 
         except Exception as e:
-            error_str = str(e).lower()
-            if "authentication" in error_str or "api key" in error_str or "401" in error_str:
-                raise AuthenticationError(
-                    message=f"DeepSeek authentication failed: {e}",
-                    provider=PROVIDER_NAME,
-                )
-            elif "rate" in error_str or "429" in error_str:
-                raise RateLimitError(
-                    message=f"DeepSeek rate limit exceeded: {e}",
-                )
-            else:
-                raise ProviderError(
-                    message=f"DeepSeek API error: {e}",
-                    provider=PROVIDER_NAME,
-                )
+            self._raise_appropriate_error(e)
+
+    def _resolve_model_name(self, model: str) -> str:
+        """Strip prefix if present (e.g., 'deepseek-api/deepseek-chat' -> 'deepseek-chat')."""
+        if model.startswith(DEEPSEEK_API_PREFIX):
+            return model[len(DEEPSEEK_API_PREFIX):]
+        return model
+
+    def _build_request_params(
+        self, request: ChatCompletionRequest, model: str, stream: bool = False
+    ) -> dict[str, Any]:
+        """Build request parameters for the API call."""
+        params: dict[str, Any] = {
+            "model": model,
+            "messages": [m.model_dump() for m in request.messages],
+        }
+        if stream:
+            params["stream"] = True
+        if request.temperature is not None:
+            params["temperature"] = request.temperature
+        if request.max_tokens is not None:
+            params["max_tokens"] = request.max_tokens
+        if request.top_p is not None:
+            params["top_p"] = request.top_p
+        if request.stop is not None:
+            params["stop"] = request.stop
+        return params
+
+    def _extract_choice_content(self, choice) -> str:
+        """Extract content from a choice, handling reasoner model's reasoning_content."""
+        content = choice.message.content or ""
+        if not content and hasattr(choice.message, "reasoning_content"):
+            content = getattr(choice.message, "reasoning_content", "") or ""
+        return content
+
+    def _build_completion_response(self, response) -> ChatCompletionResponse:
+        """Build ChatCompletionResponse from API response."""
+        choices = [
+            Choice(
+                index=choice.index,
+                message=ChoiceMessage(
+                    role=choice.message.role,
+                    content=self._extract_choice_content(choice),
+                ),
+                finish_reason=choice.finish_reason,
+            )
+            for choice in response.choices
+        ]
+
+        usage = Usage(
+            prompt_tokens=response.usage.prompt_tokens if response.usage else 0,
+            completion_tokens=response.usage.completion_tokens if response.usage else 0,
+            total_tokens=response.usage.total_tokens if response.usage else 0,
+        )
+
+        created = getattr(response, "created", None) or int(time.time())
+
+        return ChatCompletionResponse(
+            id=response.id,
+            model=response.model,
+            created=created,
+            choices=choices,
+            usage=usage,
+        )
+
+    def _raise_appropriate_error(self, e: Exception) -> None:
+        """Raise the appropriate error type based on the exception."""
+        error_str = str(e).lower()
+        if "authentication" in error_str or "api key" in error_str or "401" in error_str:
+            raise AuthenticationError(
+                message=f"DeepSeek authentication failed: {e}",
+                provider=PROVIDER_NAME,
+            ) from e
+        if "rate" in error_str or "429" in error_str:
+            raise RateLimitError(
+                message=f"DeepSeek rate limit exceeded: {e}",
+            ) from e
+        raise ProviderError(
+            message=f"DeepSeek API error: {e}",
+            provider=PROVIDER_NAME,
+        ) from e
 
     async def stream(
         self,
@@ -258,25 +269,8 @@ class DeepSeekProvider(LLMProvider):
             ChatCompletionChunk objects as they arrive.
         """
         try:
-            # Strip prefix if present (e.g., "deepseek-api/deepseek-chat" -> "deepseek-chat")
-            model = request.model
-            if model.startswith("deepseek-api/"):
-                model = model[len("deepseek-api/"):]
-            
-            params: dict[str, Any] = {
-                "model": model,
-                "messages": [m.model_dump() for m in request.messages],
-                "stream": True,
-            }
-
-            if request.temperature is not None:
-                params["temperature"] = request.temperature
-            if request.max_tokens is not None:
-                params["max_tokens"] = request.max_tokens
-            if request.top_p is not None:
-                params["top_p"] = request.top_p
-            if request.stop is not None:
-                params["stop"] = request.stop
+            model = self._resolve_model_name(request.model)
+            params = self._build_request_params(request, model, stream=True)
 
             stream = await self._client.chat.completions.create(**params)
 
@@ -301,18 +295,21 @@ class DeepSeekProvider(LLMProvider):
                 )
 
         except Exception as e:
-            error_str = str(e).lower()
-            if "authentication" in error_str or "api key" in error_str:
-                raise AuthenticationError(
-                    message=f"DeepSeek authentication failed: {e}",
-                    provider=PROVIDER_NAME,
-                )
-            elif "rate" in error_str or "429" in error_str:
-                raise RateLimitError(
-                    message=f"DeepSeek rate limit exceeded: {e}",
-                )
-            else:
-                raise ProviderError(
-                    message=f"DeepSeek streaming error: {e}",
-                    provider=PROVIDER_NAME,
-                )
+            self._raise_streaming_error(e)
+
+    def _raise_streaming_error(self, e: Exception) -> None:
+        """Raise the appropriate error type for streaming errors."""
+        error_str = str(e).lower()
+        if "authentication" in error_str or "api key" in error_str:
+            raise AuthenticationError(
+                message=f"DeepSeek authentication failed: {e}",
+                provider=PROVIDER_NAME,
+            ) from e
+        if "rate" in error_str or "429" in error_str:
+            raise RateLimitError(
+                message=f"DeepSeek rate limit exceeded: {e}",
+            ) from e
+        raise ProviderError(
+            message=f"DeepSeek streaming error: {e}",
+            provider=PROVIDER_NAME,
+        ) from e

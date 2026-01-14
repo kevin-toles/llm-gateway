@@ -149,8 +149,10 @@ class OpenRouterProvider(LLMProvider):
             # Transform to our response format
             return self._transform_response(response, request.model)
             
+        except (AuthenticationError, RateLimitError, ProviderError):
+            raise
         except Exception as e:
-            raise self._handle_error(e) from e
+            self._handle_error(e)
 
     async def stream(
         self,
@@ -181,8 +183,10 @@ class OpenRouterProvider(LLMProvider):
             async for chunk in stream:
                 yield self._transform_chunk(chunk, request.model)
                 
+        except (AuthenticationError, RateLimitError, ProviderError):
+            raise
         except Exception as e:
-            raise self._handle_error(e) from e
+            self._handle_error(e)
 
     def supports_model(self, model: str) -> bool:
         """Check if this provider supports the given model.
@@ -303,50 +307,11 @@ class OpenRouterProvider(LLMProvider):
         chunk: Any,
         model: str,
     ) -> ChatCompletionChunk:
-        """Transform streaming chunk to our format.
-        
-        Args:
-            chunk: OpenAI streaming chunk.
-            model: The model being used.
-            
-        Returns:
-            ChatCompletionChunk in our format.
-        """
-        choices = []
-        for choice in chunk.choices:
-            delta_content = None
-            delta_role = None
-            delta_tool_calls = None
-            
-            if hasattr(choice, "delta"):
-                if hasattr(choice.delta, "content"):
-                    delta_content = choice.delta.content
-                if hasattr(choice.delta, "role"):
-                    delta_role = choice.delta.role
-                if hasattr(choice.delta, "tool_calls") and choice.delta.tool_calls:
-                    delta_tool_calls = [
-                        {
-                            "id": tc.id if hasattr(tc, "id") else None,
-                            "type": tc.type if hasattr(tc, "type") else None,
-                            "function": {
-                                "name": tc.function.name if hasattr(tc.function, "name") else None,
-                                "arguments": tc.function.arguments if hasattr(tc.function, "arguments") else None,
-                            },
-                        }
-                        for tc in choice.delta.tool_calls
-                    ]
-            
-            choices.append(
-                ChunkChoice(
-                    index=choice.index,
-                    delta=ChunkDelta(
-                        role=delta_role,
-                        content=delta_content,
-                        tool_calls=delta_tool_calls,
-                    ),
-                    finish_reason=choice.finish_reason,
-                )
-            )
+        """Transform streaming chunk to our format."""
+        choices = [
+            self._transform_chunk_choice(choice)
+            for choice in chunk.choices
+        ]
         
         return ChatCompletionChunk(
             id=chunk.id,
@@ -356,20 +321,58 @@ class OpenRouterProvider(LLMProvider):
             choices=choices,
         )
 
-    def _handle_error(self, error: Exception) -> Exception:
-        """Convert OpenAI errors to our exception types.
+    def _transform_chunk_choice(self, choice) -> ChunkChoice:
+        """Transform a single choice from a streaming chunk."""
+        delta_content = None
+        delta_role = None
+        delta_tool_calls = None
+        
+        if hasattr(choice, "delta"):
+            delta_content = getattr(choice.delta, "content", None)
+            delta_role = getattr(choice.delta, "role", None)
+            delta_tool_calls = self._extract_delta_tool_calls(choice.delta)
+        
+        return ChunkChoice(
+            index=choice.index,
+            delta=ChunkDelta(
+                role=delta_role,
+                content=delta_content,
+                tool_calls=delta_tool_calls,
+            ),
+            finish_reason=choice.finish_reason,
+        )
+
+    def _extract_delta_tool_calls(self, delta) -> list[dict] | None:
+        """Extract tool calls from a streaming delta."""
+        if not hasattr(delta, "tool_calls") or not delta.tool_calls:
+            return None
+        return [
+            {
+                "id": getattr(tc, "id", None),
+                "type": getattr(tc, "type", None),
+                "function": {
+                    "name": getattr(tc.function, "name", None) if hasattr(tc, "function") else None,
+                    "arguments": getattr(tc.function, "arguments", None) if hasattr(tc, "function") else None,
+                },
+            }
+            for tc in delta.tool_calls
+        ]
+
+    def _handle_error(self, error: Exception) -> None:
+        """Convert OpenAI errors to our exception types and raise.
         
         Args:
             error: The original exception.
             
-        Returns:
-            Appropriate exception type for our system.
+        Raises:
+            AuthenticationError: For auth failures.
+            RateLimitError: For rate limiting.
+            ProviderError: For other errors.
         """
         error_str = str(error).lower()
         
         if "authentication" in error_str or "api key" in error_str or "401" in error_str:
-            return AuthenticationError(f"OpenRouter authentication failed: {error}")
-        elif "rate limit" in error_str or "429" in error_str:
-            return RateLimitError(f"OpenRouter rate limited: {error}")
-        else:
-            return ProviderError(message=f"OpenRouter error: {error}", provider="openrouter")
+            raise AuthenticationError(f"OpenRouter authentication failed: {error}") from error
+        if "rate limit" in error_str or "429" in error_str:
+            raise RateLimitError(f"OpenRouter rate limited: {error}") from error
+        raise ProviderError(message=f"OpenRouter error: {error}", provider="openrouter") from error

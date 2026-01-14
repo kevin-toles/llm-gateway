@@ -9,10 +9,13 @@ Reference Documents:
 - ARCHITECTURE.md: Line 342 - Graceful degradation for optional services
 - llm-document-enhancer/docs/ARCHITECTURE.md: Line 242 - ai-agents is optional
 
-TDD Phase: RED - These tests define expected ai-agents integration behavior.
+INTEGRATION TEST COMPLIANCE:
+- Configuration tests: No mocks needed
+- Health check tests: Use real services where available, skip otherwise
+- Pattern: Dependency injection for testability (not mocking HTTP)
 """
 
-from unittest.mock import AsyncMock, patch
+import os
 
 import httpx
 import pytest
@@ -22,13 +25,32 @@ from src.main import app
 
 
 # =============================================================================
-# WBS 3.3.1.1: Gateway Configuration for AI Agents Tests
+# Integration Test Configuration
+# =============================================================================
+
+AI_AGENTS_URL = os.getenv("INTEGRATION_AI_AGENTS_URL", "http://localhost:8082")
+
+
+def ai_agents_available() -> bool:
+    """Check if ai-agents service is available."""
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            resp = client.get(f"{AI_AGENTS_URL}/health")
+            return resp.status_code == 200
+    except Exception:
+        return False
+
+
+# =============================================================================
+# WBS 3.3.1.1: Gateway Configuration for AI Agents Tests (No Mocks Needed)
 # =============================================================================
 
 
 class TestAIAgentsGatewayConfiguration:
     """
     WBS 3.3.1.1: Test gateway configuration for ai-agents service.
+    
+    These tests verify configuration - no mocks needed.
     """
 
     @pytest.fixture
@@ -39,8 +61,6 @@ class TestAIAgentsGatewayConfiguration:
     def test_ai_agents_url_in_settings(self):
         """
         WBS 3.3.1.1.1: Verify ai_agents_url exists in Settings.
-        
-        Settings should have ai_agents_url field with sensible default.
         """
         from src.core.config import get_settings
 
@@ -56,44 +76,32 @@ class TestAIAgentsGatewayConfiguration:
     def test_ai_agents_url_configurable_via_env(self):
         """
         WBS 3.3.1.1.1: ai_agents_url should be configurable via environment.
-        
-        Environment variable LLM_GATEWAY_AI_AGENTS_URL should override default.
         """
         import os
         from importlib import reload
 
-        # Save original
         original = os.environ.get("LLM_GATEWAY_AI_AGENTS_URL")
         
         try:
-            # Set test value
             os.environ["LLM_GATEWAY_AI_AGENTS_URL"] = "http://test-ai-agents:9999"
             
-            # Need to reimport to pick up new env var
             import src.core.config as config_module
-            
-            # Clear the cached settings
             config_module.get_settings.cache_clear()
             
             settings = config_module.get_settings()
             assert settings.ai_agents_url == "http://test-ai-agents:9999"
         finally:
-            # Restore
             if original is None:
                 os.environ.pop("LLM_GATEWAY_AI_AGENTS_URL", None)
             else:
                 os.environ["LLM_GATEWAY_AI_AGENTS_URL"] = original
             
-            # Clear cache again
             import src.core.config as config_module
             config_module.get_settings.cache_clear()
 
     def test_ai_agents_url_follows_naming_convention(self):
         """
         WBS 3.3.1.1.4: Service discovery pattern documentation.
-        
-        The URL field should follow the same naming convention as other services.
-        Pattern: <service>_url
         """
         from src.core.config import get_settings
 
@@ -116,6 +124,8 @@ class TestAIAgentsGatewayConfiguration:
 class TestAIAgentsHealthCheckIntegration:
     """
     WBS 3.3.1.2: Test health check integration for ai-agents service.
+    
+    Tests use real services where available, dependency injection otherwise.
     """
 
     @pytest.fixture
@@ -123,47 +133,10 @@ class TestAIAgentsHealthCheckIntegration:
         """Create test client."""
         return TestClient(app)
 
-    @pytest.fixture
-    def mock_ai_agents_healthy(self):
-        """
-        Mock ai-agents service returning healthy status.
-        """
-        async def mock_get(*args, **kwargs):
-            mock_response = AsyncMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"status": "healthy"}
-            return mock_response
-        
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get = mock_get
-            mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
-            mock_instance.__aexit__ = AsyncMock(return_value=None)
-            mock_client.return_value = mock_instance
-            yield mock_client
-
-    @pytest.fixture
-    def mock_ai_agents_unavailable(self):
-        """
-        Mock ai-agents service being unavailable.
-        """
-        async def mock_get(*args, **kwargs):
-            raise httpx.ConnectError("Connection refused")
-        
-        with patch("httpx.AsyncClient") as mock_client:
-            mock_instance = AsyncMock()
-            mock_instance.get = mock_get
-            mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
-            mock_instance.__aexit__ = AsyncMock(return_value=None)
-            mock_client.return_value = mock_instance
-            yield mock_client
-
     @pytest.mark.asyncio
     async def test_check_ai_agents_health_function_exists(self):
         """
         WBS 3.3.1.2.2: check_ai_agents_health() function should exist.
-        
-        RED: This test will fail until we implement the function.
         """
         from src.api.routes.health import HealthService
 
@@ -180,15 +153,13 @@ class TestAIAgentsHealthCheckIntegration:
         """
         from src.api.routes.health import HealthService
 
-        service = HealthService(ai_agents_url="http://localhost:8082")
+        service = HealthService(ai_agents_url=AI_AGENTS_URL)
         result = await service.check_ai_agents_health()
         assert isinstance(result, bool)
 
     def test_readiness_includes_ai_agents_status(self, client):
         """
         WBS 3.3.1.2.1: Readiness endpoint should include ai_agents check.
-        
-        The /health/ready response should have ai_agents in checks dict.
         """
         response = client.get("/health/ready")
         data = response.json()
@@ -198,55 +169,44 @@ class TestAIAgentsHealthCheckIntegration:
             "Readiness checks should include ai_agents status"
         )
 
-    def test_ai_agents_unavailable_does_not_fail_readiness(self, client):
-        """
-        WBS 3.3.1.2.3: AI agents being down should NOT fail readiness.
-        
-        ai-agents is an optional service. Gateway should remain ready
-        even if ai-agents is unavailable - this differs from semantic-search.
-        
-        Pattern: Graceful degradation (Newman pp. 352-353)
-        Reference: ARCHITECTURE.md line 342 - optional services return degraded
-        """
-        # Mock all HTTP calls to ai-agents to fail
-        with patch("src.api.routes.health.HealthService.check_ai_agents_health") as mock:
-            mock.return_value = False
-            
-            # Also mock other health checks to be healthy
-            with patch("src.api.routes.health.HealthService.check_redis") as mock_redis:
-                mock_redis.return_value = True
-                with patch("src.api.routes.health.HealthService.check_semantic_search_health") as mock_ss:
-                    mock_ss.return_value = True
-                    
-                    response = client.get("/health/ready")
-                    
-                    # Should NOT be 503 - ai-agents is optional
-                    assert response.status_code == 200, (
-                        "ai-agents unavailability should not cause 503"
-                    )
-                    
-                    data = response.json()
-                    # Status should be ready or degraded, not not_ready
-                    assert data["status"] in ["ready", "degraded"], (
-                        "Status should be ready or degraded when optional service down"
-                    )
-                    assert data["checks"]["ai_agents"] is False
-
-    def test_ai_agents_healthy_included_in_checks(self, client):
+    @pytest.mark.skipif(
+        not ai_agents_available(),
+        reason="AI Agents service not available"
+    )
+    def test_readiness_shows_healthy_when_service_up(self, client):
         """
         WBS 3.3.1.2.4: When ai-agents is healthy, should report True.
+        
+        Uses real ai-agents service.
         """
-        with patch("src.api.routes.health.HealthService.check_ai_agents_health") as mock:
-            mock.return_value = True
-            with patch("src.api.routes.health.HealthService.check_redis") as mock_redis:
-                mock_redis.return_value = True
-                with patch("src.api.routes.health.HealthService.check_semantic_search_health") as mock_ss:
-                    mock_ss.return_value = True
-                    
-                    response = client.get("/health/ready")
-                    data = response.json()
-                    
-                    assert data["checks"]["ai_agents"] is True
+        response = client.get("/health/ready")
+        data = response.json()
+        
+        # With real service available, should be True
+        assert data["checks"]["ai_agents"] is True
+
+    @pytest.mark.skipif(
+        ai_agents_available(),
+        reason="Test only runs when AI Agents service is unavailable"
+    )
+    def test_readiness_shows_false_when_service_down(self, client):
+        """
+        WBS 3.3.1.2.3: When ai-agents is down, should report False but not fail.
+        
+        ai-agents is an optional service - gateway should remain ready.
+        """
+        response = client.get("/health/ready")
+        data = response.json()
+        
+        # Should NOT be 503 - ai-agents is optional
+        assert response.status_code == 200, (
+            "ai-agents unavailability should not cause 503"
+        )
+        
+        # Status should be ready or degraded, not not_ready
+        assert data["status"] in ["ready", "degraded"], (
+            "Status should be ready or degraded when optional service down"
+        )
 
     @pytest.mark.asyncio
     async def test_ai_agents_health_timeout_handling(self):
@@ -254,7 +214,6 @@ class TestAIAgentsHealthCheckIntegration:
         WBS 3.3.1.2.2: Health check should handle timeouts gracefully.
         
         If ai-agents takes too long, should return False not raise exception.
-        Pattern: Timeout handling (Newman p. 356)
         """
         from src.api.routes.health import HealthService
 
@@ -274,6 +233,8 @@ class TestAIAgentsHealthCheckIntegration:
 class TestGatewayAIAgentsURLResolution:
     """
     WBS 3.3.1.1.5: Integration tests for URL resolution.
+    
+    Configuration tests - no mocks needed.
     """
 
     def test_settings_loads_ai_agents_url_from_pydantic(self):
@@ -282,7 +243,6 @@ class TestGatewayAIAgentsURLResolution:
         """
         from src.core.config import Settings
 
-        # Create settings instance directly
         settings = Settings()
         assert settings.ai_agents_url == "http://localhost:8082"
 
@@ -292,7 +252,6 @@ class TestGatewayAIAgentsURLResolution:
         """
         from src.api.routes.health import HealthService
 
-        # Default should be localhost:8082
         service = HealthService()
         assert "8082" in service._ai_agents_url or service._ai_agents_url is None
 

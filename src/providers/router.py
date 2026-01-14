@@ -15,6 +15,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Constants for duplicate literals
+MODEL_GPT_5_2 = "gpt-5.2"
+MODEL_GEMINI_1_5_PRO = "gemini-1.5-pro"
+
 
 class NoProviderError(Exception):
     """Raised when no provider is available for the requested model."""
@@ -76,13 +80,13 @@ class ProviderRouter:
         "claude-opus-4-20250514": "anthropic",     # Official Anthropic ID
         "claude-sonnet-4-20250514": "anthropic",   # Official Anthropic ID
         # OpenAI (your API key)
-        "gpt-5.2": "openai",
+        MODEL_GPT_5_2: "openai",
         "gpt-5.2-pro": "openai",
         "gpt-5-mini": "openai",
         "gpt-5-nano": "openai",
         # Google (your API key)
         "gemini-2.0-flash": "google",
-        "gemini-1.5-pro": "google",
+        MODEL_GEMINI_1_5_PRO: "google",
         "gemini-1.5-flash": "google",
         "gemini-pro": "google",
         # DeepSeek (your API key) - direct model access
@@ -111,9 +115,9 @@ class ProviderRouter:
     # Maps shorthand names to the recommended default model
     PROVIDER_DEFAULTS = {
         # OpenAI shortcuts
-        "openai": "gpt-5.2",
-        "chatgpt": "gpt-5.2",
-        "gpt": "gpt-5.2",
+        "openai": MODEL_GPT_5_2,
+        "chatgpt": MODEL_GPT_5_2,
+        "gpt": MODEL_GPT_5_2,
         # Anthropic shortcuts - use the -5- format users expect
         "anthropic": "claude-opus-4-5-20250514",
         "claude": "claude-opus-4-5-20250514",
@@ -121,8 +125,8 @@ class ProviderRouter:
         "deepseek": "deepseek-api/deepseek-reasoner",
         "reasoner": "deepseek-api/deepseek-reasoner",
         # Google shortcuts
-        "google": "gemini-1.5-pro",
-        "gemini": "gemini-1.5-pro",
+        "google": MODEL_GEMINI_1_5_PRO,
+        "gemini": MODEL_GEMINI_1_5_PRO,
     }
 
     def __init__(
@@ -159,69 +163,95 @@ class ProviderRouter:
         3. Exact match in EXTERNAL_MODELS -> specific provider
         4. Prefix match in MODEL_PREFIXES -> specific provider
         5. Default provider (inference-service)
-
-        Args:
-            model: The model name to route (e.g., "qwen2.5-7b", "openrouter/mistral").
-
-        Returns:
-            The LLMProvider instance for the model.
-
-        Raises:
-            NoProviderError: If no provider is available.
         """
         if not self._providers:
             raise NoProviderError("No providers registered")
 
         model_lower = model.lower()
         
-        # 0. Check provider alias defaults (e.g., "openai" -> "gpt-5.2")
-        if model_lower in self.PROVIDER_DEFAULTS:
-            actual_model = self.PROVIDER_DEFAULTS[model_lower]
-            logger.info(f"Alias '{model}' -> default model '{actual_model}'")
-            # Recursively route the actual model
-            return self.get_provider(actual_model)
-        
-        # 1. Check explicit aggregator prefixes (openrouter/, ollama/)
-        #    These MUST have prefix to be used - they're never auto-routed
-        for prefix in ["openrouter/", "ollama/", "deepseek-api/"]:
-            if model_lower.startswith(prefix):
-                provider_name = self.MODEL_PREFIXES.get(prefix)
-                if provider_name and provider_name in self._providers:
-                    logger.info(f"Routing {model} to {provider_name} (explicit prefix)")
-                    return self._providers[provider_name]
-                    
-        # 2. Check exact match in LOCAL_MODELS -> inference-service
-        if model_lower in self.LOCAL_MODELS or model in self.LOCAL_MODELS:
-            if "inference" in self._providers:
-                logger.info(f"Routing {model} to inference-service (local model)")
-                return self._providers["inference"]
-                
-        # 3. Check exact match in EXTERNAL_MODELS
-        if model in self.EXTERNAL_MODELS:
-            provider_name = self.EXTERNAL_MODELS[model]
-            if provider_name in self._providers:
-                logger.info(f"Routing {model} to {provider_name} (external owned)")
-                return self._providers[provider_name]
-                
-        # 4. Check prefix match for external owned APIs (claude-, gpt-, gemini-)
-        for prefix, provider_name in self.MODEL_PREFIXES.items():
-            if model_lower.startswith(prefix):
-                if provider_name in self._providers:
-                    logger.info(f"Routing {model} to {provider_name} (prefix match)")
-                    return self._providers[provider_name]
+        # Try each routing strategy in order
+        provider = self._route_by_alias(model, model_lower)
+        if provider:
+            return provider
+            
+        provider = self._route_by_explicit_prefix(model, model_lower)
+        if provider:
+            return provider
+            
+        provider = self._route_by_local_model(model, model_lower)
+        if provider:
+            return provider
+            
+        provider = self._route_by_external_model(model)
+        if provider:
+            return provider
+            
+        provider = self._route_by_prefix_match(model, model_lower)
+        if provider:
+            return provider
+            
+        provider = self._route_to_default(model)
+        if provider:
+            return provider
 
-        # 5. Default to inference-service for unknown models
-        #    This prevents accidental routing to OpenRouter
+        raise NoProviderError(f"No provider found for model: {model}")
+
+    def _route_by_alias(self, model: str, model_lower: str) -> LLMProvider | None:
+        """Route by provider alias (e.g., 'openai' -> 'gpt-5.2')."""
+        if model_lower not in self.PROVIDER_DEFAULTS:
+            return None
+        actual_model = self.PROVIDER_DEFAULTS[model_lower]
+        logger.info(f"Alias '{model}' -> default model '{actual_model}'")
+        return self.get_provider(actual_model)
+
+    def _route_by_explicit_prefix(self, model: str, model_lower: str) -> LLMProvider | None:
+        """Route by explicit aggregator prefix (openrouter/, ollama/, deepseek-api/)."""
+        explicit_prefixes = ["openrouter/", "ollama/", "deepseek-api/"]
+        for prefix in explicit_prefixes:
+            if not model_lower.startswith(prefix):
+                continue
+            provider_name = self.MODEL_PREFIXES.get(prefix)
+            if provider_name and provider_name in self._providers:
+                logger.info(f"Routing {model} to {provider_name} (explicit prefix)")
+                return self._providers[provider_name]
+        return None
+
+    def _route_by_local_model(self, model: str, model_lower: str) -> LLMProvider | None:
+        """Route local models to inference-service."""
+        if model_lower not in self.LOCAL_MODELS and model not in self.LOCAL_MODELS:
+            return None
+        if "inference" in self._providers:
+            logger.info(f"Routing {model} to inference-service (local model)")
+            return self._providers["inference"]
+        return None
+
+    def _route_by_external_model(self, model: str) -> LLMProvider | None:
+        """Route external models to their specific provider."""
+        if model not in self.EXTERNAL_MODELS:
+            return None
+        provider_name = self.EXTERNAL_MODELS[model]
+        if provider_name in self._providers:
+            logger.info(f"Routing {model} to {provider_name} (external owned)")
+            return self._providers[provider_name]
+        return None
+
+    def _route_by_prefix_match(self, model: str, model_lower: str) -> LLMProvider | None:
+        """Route by prefix match (claude-, gpt-, gemini-)."""
+        for prefix, provider_name in self.MODEL_PREFIXES.items():
+            if model_lower.startswith(prefix) and provider_name in self._providers:
+                logger.info(f"Routing {model} to {provider_name} (prefix match)")
+                return self._providers[provider_name]
+        return None
+
+    def _route_to_default(self, model: str) -> LLMProvider | None:
+        """Route to default provider (inference-service or configured default)."""
         if "inference" in self._providers:
             logger.warning(f"Unknown model {model}, defaulting to inference-service")
             return self._providers["inference"]
-            
-        # 6. Fall back to default provider if inference not available
         if self._default_provider and self._default_provider in self._providers:
             logger.warning(f"Unknown model {model}, using default: {self._default_provider}")
             return self._providers[self._default_provider]
-
-        raise NoProviderError(f"No provider found for model: {model}")
+        return None
 
     def resolve_model_alias(self, model: str) -> str:
         """Resolve a model alias to the actual model name.

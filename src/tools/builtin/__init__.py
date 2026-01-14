@@ -34,6 +34,25 @@ from src.tools.builtin.enrich_metadata import (
     ENRICH_METADATA_DEFINITION,
     EnrichMetadataServiceError,
 )
+from src.tools.builtin.hybrid_search import (
+    hybrid_search,
+    HYBRID_SEARCH_DEFINITION,
+    HybridSearchServiceError,
+)
+from src.tools.builtin.code_orchestrator_tools import (
+    compute_similarity,
+    extract_keywords,
+    generate_embeddings,
+    COMPUTE_SIMILARITY_DEFINITION,
+    EXTRACT_KEYWORDS_DEFINITION,
+    GENERATE_EMBEDDINGS_DEFINITION,
+    CodeOrchestratorServiceError,
+)
+from src.tools.builtin.embed import (
+    embed,
+    EMBED_DEFINITION,
+    EmbedServiceError,
+)
 from src.tools.registry import ToolRegistry
 from src.models.domain import RegisteredTool
 
@@ -73,12 +92,56 @@ def register_builtin_tools(registry: ToolRegistry) -> None:
         RegisteredTool(definition=ENRICH_METADATA_DEFINITION, handler=enrich_metadata),
     )
 
+    # Register hybrid_search (semantic-search-service proxy)
+    # WBS-CPA1: Gateway external tool exposure for MCP/external LLMs
+    registry.register(
+        "hybrid_search",
+        RegisteredTool(definition=HYBRID_SEARCH_DEFINITION, handler=hybrid_search),
+    )
+
+    # =========================================================================
+    # WBS-CPA2: Code-Orchestrator Tools for External Clients
+    # =========================================================================
+    
+    # Register compute_similarity (Code-Orchestrator-Service proxy)
+    registry.register(
+        "compute_similarity",
+        RegisteredTool(definition=COMPUTE_SIMILARITY_DEFINITION, handler=compute_similarity),
+    )
+
+    # Register extract_keywords (Code-Orchestrator-Service proxy)
+    registry.register(
+        "extract_keywords",
+        RegisteredTool(definition=EXTRACT_KEYWORDS_DEFINITION, handler=extract_keywords),
+    )
+
+    # Register generate_embeddings (Code-Orchestrator-Service proxy)
+    registry.register(
+        "generate_embeddings",
+        RegisteredTool(definition=GENERATE_EMBEDDINGS_DEFINITION, handler=generate_embeddings),
+    )
+
+    # =========================================================================
+    # WBS-CPA6: Embed Tool for External Clients
+    # Routes to semantic-search-service /v1/embeddings
+    # =========================================================================
+    
+    # Register embed (semantic-search-service proxy)
+    registry.register(
+        "embed",
+        RegisteredTool(definition=EMBED_DEFINITION, handler=embed),
+    )
+
 
 __all__ = [
     # Semantic Search
     "search_corpus",
     "SEARCH_CORPUS_DEFINITION",
     "SearchServiceError",
+    # Hybrid Search (WBS-CPA1)
+    "hybrid_search",
+    "HYBRID_SEARCH_DEFINITION",
+    "HybridSearchServiceError",
     # Chunk Retrieval
     "get_chunk",
     "GET_CHUNK_DEFINITION",
@@ -92,6 +155,18 @@ __all__ = [
     "enrich_metadata",
     "ENRICH_METADATA_DEFINITION",
     "EnrichMetadataServiceError",
+    # Code-Orchestrator Tools (WBS-CPA2)
+    "compute_similarity",
+    "extract_keywords",
+    "generate_embeddings",
+    "COMPUTE_SIMILARITY_DEFINITION",
+    "EXTRACT_KEYWORDS_DEFINITION",
+    "GENERATE_EMBEDDINGS_DEFINITION",
+    "CodeOrchestratorServiceError",
+    # Embed Tool (WBS-CPA6)
+    "embed",
+    "EMBED_DEFINITION",
+    "EmbedServiceError",
     # Registration
     "register_builtin_tools",
 ]

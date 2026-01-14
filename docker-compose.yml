@@ -103,9 +103,10 @@ services:
       AI_AGENTS_LOG_LEVEL: INFO
       
       # Kitchen Brigade: MSEP service dependencies
-      # Uses non-prefixed env vars for cross-service communication per constants.py
-      CODE_ORCHESTRATOR_URL: http://code-orchestrator:8083
-      SEMANTIC_SEARCH_URL: http://semantic-search:8081
+      # Uses env vars for cross-service communication with defaults
+      # WBS-CPA6: External-facing URLs use environment variables
+      CODE_ORCHESTRATOR_URL: ${CODE_ORCHESTRATOR_URL:-http://code-orchestrator:8083}
+      SEMANTIC_SEARCH_URL: ${SEMANTIC_SEARCH_URL:-http://semantic-search:8081}
       
       # ai-agents internal config (AI_AGENTS_ prefix)
       AI_AGENTS_LLM_GATEWAY_URL: http://llm-gateway:8080
@@ -163,8 +164,10 @@ services:
       
       # WBS 3.4.1.1.7: Service Discovery environment variables
       # Reference: docs/ARCHITECTURE.md lines 275-290
-      LLM_GATEWAY_SEMANTIC_SEARCH_URL: http://semantic-search:8081
-      LLM_GATEWAY_AI_AGENTS_URL: http://ai-agents:8082
+      # WBS-CPA6: External-facing URLs use environment variables
+      LLM_GATEWAY_SEMANTIC_SEARCH_URL: ${LLM_GATEWAY_SEMANTIC_SEARCH_URL:-http://semantic-search:8081}
+      LLM_GATEWAY_AI_AGENTS_URL: ${LLM_GATEWAY_AI_AGENTS_URL:-http://ai-agents:8082}
+      LLM_GATEWAY_CODE_ORCHESTRATOR_URL: ${LLM_GATEWAY_CODE_ORCHESTRATOR_URL:-http://code-orchestrator:8083}
       
       # Provider Configuration (override with .env file)
       LLM_GATEWAY_DEFAULT_PROVIDER: anthropic
@@ -261,8 +264,10 @@ services:
     environment:
       LLM_GATEWAY_ENV: test
       LLM_GATEWAY_REDIS_URL: redis://ai-platform-redis:6379
-      LLM_GATEWAY_SEMANTIC_SEARCH_URL: http://semantic-search:8081
-      LLM_GATEWAY_AI_AGENTS_URL: http://ai-agents:8082
+      # WBS-CPA6: Service URLs with defaults
+      LLM_GATEWAY_SEMANTIC_SEARCH_URL: ${LLM_GATEWAY_SEMANTIC_SEARCH_URL:-http://semantic-search:8081}
+      LLM_GATEWAY_AI_AGENTS_URL: ${LLM_GATEWAY_AI_AGENTS_URL:-http://ai-agents:8082}
+      LLM_GATEWAY_CODE_ORCHESTRATOR_URL: ${LLM_GATEWAY_CODE_ORCHESTRATOR_URL:-http://code-orchestrator:8083}
       # Test against running gateway
       TEST_GATEWAY_URL: http://llm-gateway:8080
     depends_on:
