@@ -317,194 +317,11 @@ class HealthService:
 
 
 # =============================================================================
-# Metrics Service - Prometheus Format (Building Microservices p. 273)
-# =============================================================================
-
-# Provider names from ARCHITECTURE.md
-SUPPORTED_PROVIDERS = ["anthropic", "openai", "ollama"]
-
-
-class MetricsService:
-    """
-    Service class for Prometheus metrics.
-
-    Pattern: Service metrics exposure (Building Microservices p. 273-275)
-
-    WBS 2.2.1.3.4: Include provider-specific metrics
-    Reference: GUIDELINES line 2309 - "domain-specific metrics in business-relevant terms"
-    Reference: ARCHITECTURE.md - Provider Router supports anthropic, openai, ollama
-    """
-
-    def __init__(self):
-        """Initialize metrics counters."""
-        # Global metrics (WBS 2.2.1.3.3)
-        self._request_count = 0
-        self._error_count = 0
-        self._total_duration_seconds = 0.0
-
-        # Provider-specific metrics (WBS 2.2.1.3.4)
-        # Note: Using dict.fromkeys for int types, dict comprehension for float to ensure
-        # proper initialization (fromkeys shares references for mutable defaults)
-        self._provider_requests: dict[str, int] = dict.fromkeys(SUPPORTED_PROVIDERS, 0)
-        self._provider_errors: dict[str, int] = dict.fromkeys(SUPPORTED_PROVIDERS, 0)
-        self._provider_latency_sum: dict[str, float] = dict.fromkeys(  # noqa: C417
-            SUPPORTED_PROVIDERS, 0.0
-        )
-        self._provider_latency_count: dict[str, int] = dict.fromkeys(SUPPORTED_PROVIDERS, 0)
-
-        # Token usage metrics (GUIDELINES line 2309 - "token usage tracking")
-        self._provider_tokens: dict[str, int] = dict.fromkeys(SUPPORTED_PROVIDERS, 0)
-
-    def get_prometheus_metrics(self) -> str:
-        """
-        Generate Prometheus-format metrics.
-
-        WBS 2.2.1.3.2: Expose Prometheus metrics format
-        WBS 2.2.1.3.3: Include request count, latency, error rate
-        WBS 2.2.1.3.4: Include provider-specific metrics
-
-        Returns:
-            str: Prometheus text format metrics
-        """
-        lines = [
-            # Global request metrics
-            "# HELP llm_gateway_requests_total Total number of requests",
-            "# TYPE llm_gateway_requests_total counter",
-            f"llm_gateway_requests_total {self._request_count}",
-            "",
-            "# HELP llm_gateway_request_duration_seconds Request latency in seconds",
-            "# TYPE llm_gateway_request_duration_seconds histogram",
-            f"llm_gateway_request_duration_seconds_sum {self._total_duration_seconds:.6f}",
-            f"llm_gateway_request_duration_seconds_count {self._request_count}",
-            "",
-            "# HELP llm_gateway_errors_total Total number of errors",
-            "# TYPE llm_gateway_errors_total counter",
-            f"llm_gateway_errors_total {self._error_count}",
-            "",
-            # Provider-specific request counts (WBS 2.2.1.3.4)
-            "# HELP llm_gateway_provider_requests_total Requests per LLM provider",
-            "# TYPE llm_gateway_provider_requests_total counter",
-        ]
-
-        # Add provider request counts with labels
-        for provider in SUPPORTED_PROVIDERS:
-            lines.append(
-                f'llm_gateway_provider_requests_total{{provider="{provider}"}} '
-                f"{self._provider_requests[provider]}"
-            )
-
-        lines.extend([
-            "",
-            # Provider-specific latency (WBS 2.2.1.3.4)
-            "# HELP llm_gateway_provider_latency_seconds Latency per LLM provider",
-            "# TYPE llm_gateway_provider_latency_seconds histogram",
-        ])
-
-        for provider in SUPPORTED_PROVIDERS:
-            lines.append(
-                f'llm_gateway_provider_latency_seconds_sum{{provider="{provider}"}} '
-                f"{self._provider_latency_sum[provider]:.6f}"
-            )
-            lines.append(
-                f'llm_gateway_provider_latency_seconds_count{{provider="{provider}"}} '
-                f"{self._provider_latency_count[provider]}"
-            )
-
-        lines.extend([
-            "",
-            # Provider-specific errors (WBS 2.2.1.3.4)
-            "# HELP llm_gateway_provider_errors_total Errors per LLM provider",
-            "# TYPE llm_gateway_provider_errors_total counter",
-        ])
-
-        for provider in SUPPORTED_PROVIDERS:
-            lines.append(
-                f'llm_gateway_provider_errors_total{{provider="{provider}"}} '
-                f"{self._provider_errors[provider]}"
-            )
-
-        lines.extend([
-            "",
-            # Token usage metrics (GUIDELINES line 2309)
-            "# HELP llm_gateway_tokens_total Total tokens used per provider",
-            "# TYPE llm_gateway_tokens_total counter",
-        ])
-
-        for provider in SUPPORTED_PROVIDERS:
-            lines.append(
-                f'llm_gateway_tokens_total{{provider="{provider}"}} '
-                f"{self._provider_tokens[provider]}"
-            )
-
-        return "\n".join(lines)
-
-    def increment_request_count(self) -> None:
-        """Increment global request counter."""
-        self._request_count += 1
-
-    def increment_error_count(self) -> None:
-        """Increment global error counter."""
-        self._error_count += 1
-
-    def record_duration(self, duration_seconds: float) -> None:
-        """Record global request duration."""
-        self._total_duration_seconds += duration_seconds
-
-    # Provider-specific metric methods (WBS 2.2.1.3.4)
-
-    def increment_provider_request(self, provider: str) -> None:
-        """
-        Increment request counter for a specific provider.
-
-        Args:
-            provider: Provider name (anthropic, openai, ollama)
-        """
-        if provider in self._provider_requests:
-            self._provider_requests[provider] += 1
-
-    def increment_provider_error(self, provider: str) -> None:
-        """
-        Increment error counter for a specific provider.
-
-        Args:
-            provider: Provider name (anthropic, openai, ollama)
-        """
-        if provider in self._provider_errors:
-            self._provider_errors[provider] += 1
-
-    def record_provider_latency(self, provider: str, latency_seconds: float) -> None:
-        """
-        Record latency for a specific provider.
-
-        Args:
-            provider: Provider name (anthropic, openai, ollama)
-            latency_seconds: Request latency in seconds
-        """
-        if provider in self._provider_latency_sum:
-            self._provider_latency_sum[provider] += latency_seconds
-            self._provider_latency_count[provider] += 1
-
-    def record_provider_tokens(self, provider: str, token_count: int) -> None:
-        """
-        Record token usage for a specific provider.
-
-        Pattern: Domain-specific metrics - "token usage tracking" (GUIDELINES line 2309)
-
-        Args:
-            provider: Provider name (anthropic, openai, ollama)
-            token_count: Number of tokens used
-        """
-        if provider in self._provider_tokens:
-            self._provider_tokens[provider] += token_count
-
-
-# =============================================================================
 # Dependency Injection - FastAPI Pattern (Sinha p. 90)
 # =============================================================================
 
 # Global service instances (can be overridden in tests)
 _health_service: HealthService | None = None
-_metrics_service: MetricsService | None = None
 
 
 def get_health_service() -> HealthService:
@@ -517,16 +334,6 @@ def get_health_service() -> HealthService:
     if _health_service is None:
         _health_service = HealthService()
     return _health_service
-
-
-def get_metrics_service() -> MetricsService:
-    """
-    Dependency injection factory for MetricsService.
-    """
-    global _metrics_service
-    if _metrics_service is None:
-        _metrics_service = MetricsService()
-    return _metrics_service
 
 
 # =============================================================================
@@ -683,29 +490,16 @@ async def readiness_check(
 
 
 # =============================================================================
-# Metrics Endpoint - WBS 2.2.1.3
+# NOTE: /metrics endpoint removed - WBS-OBS13
+#
+# The /metrics endpoint was previously defined here using a manual MetricsService
+# class that formatted Prometheus metrics as text strings. This has been replaced
+# by the proper prometheus_client library implementation in observability/metrics.py
+# which is mounted via get_metrics_app() in main.py.
+#
+# The old implementation was orphaned code - no callers ever invoked the
+# increment_provider_request(), record_provider_latency(), etc. methods,
+# so the metrics were always returning zero values.
+#
+# Reference: WBS_B5_B1_REMAINING_WORK.md - OBS-13: Remove duplicate /metrics
 # =============================================================================
-
-
-@router.get("/metrics")
-async def metrics(
-    metrics_service: MetricsService = Depends(get_metrics_service),
-) -> PlainTextResponse:
-    """
-    Prometheus metrics endpoint.
-
-    WBS 2.2.1.3.1: Implement GET /metrics endpoint
-    WBS 2.2.1.3.2: Expose Prometheus metrics format
-    WBS 2.2.1.3.3: Include request count, latency, error rate
-
-    Args:
-        metrics_service: Injected metrics service dependency
-
-    Returns:
-        PlainTextResponse: Prometheus text format metrics
-    """
-    content = metrics_service.get_prometheus_metrics()
-    return PlainTextResponse(
-        content=content,
-        media_type="text/plain; version=0.0.4; charset=utf-8",
-    )

@@ -99,11 +99,12 @@ class ProviderRouter:
         "claude-": "anthropic",
         "gpt-": "openai",
         "gemini-": "google",
+        "deepseek-": "deepseek",  # Added for consistency with other cloud providers
         
         # External aggregators - EXPLICIT PREFIX REQUIRED
         "openrouter/": "openrouter",  # Must use: openrouter/model-name
         "ollama/": "ollama",          # Must use: ollama/model-name
-        "deepseek-api/": "deepseek",  # Must use: deepseek-api/model-name
+        "deepseek-api/": "deepseek",  # Legacy: deepseek-api/model-name
         
         # Legacy support
         "local/": "llamacpp",

@@ -19,6 +19,16 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import middleware - WBS-PS5: Memory tracking and backpressure
 from src.api.middleware.memory import MemoryMiddleware, memory_tracker
 
+# WBS-OBS1-4: Import observability components
+from src.observability import (
+    setup_tracing,
+    TracingMiddleware,
+    MetricsMiddleware,
+    get_metrics_app,
+    get_logger,
+)
+from src.core.config import get_settings
+
 # Import routers - WBS 2.1.1.1.4, 2.2.1, 2.2.2, 2.2.3, 2.2.4, 2.2.5
 from src.api.routes.health import router as health_router
 from src.api.routes.chat import router as chat_router
@@ -83,8 +93,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # =========================================================================
     # STARTUP - WBS 2.1.1.2.1
     # =========================================================================
-    print(f"🚀 {APP_NAME} v{APP_VERSION} starting in {ENV} mode")
-    print(f"📊 Log level: {LOG_LEVEL}")
+    logger = get_logger(__name__)
+    settings = get_settings()
+    
+    logger.info(f"{APP_NAME} v{APP_VERSION} starting in {ENV} mode")
+    logger.info(f"Log level: {LOG_LEVEL}")
+    
+    # WBS-OBS1: Initialize OpenTelemetry tracing
+    if settings.tracing_enabled:
+        tracer_provider = setup_tracing(
+            service_name=settings.service_name,
+            otlp_endpoint=settings.otlp_endpoint,
+        )
+        app.state.tracer_provider = tracer_provider
+        logger.info(
+            f"OpenTelemetry tracing initialized",
+            extra={"otlp_endpoint": settings.otlp_endpoint or "console"}
+        )
     
     # Initialize app state - WBS 2.1.1.2.7
     app.state.initialized = True
@@ -103,7 +128,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # =========================================================================
     # SHUTDOWN - WBS 2.1.1.2.4
     # =========================================================================
-    print(f"👋 {APP_NAME} shutting down")
+    logger.info(f"{APP_NAME} shutting down")
     
     # Clean up resources - WBS 2.1.1.2.8
     app.state.initialized = False
@@ -141,6 +166,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# WBS-OBS2: Add TracingMiddleware for OpenTelemetry distributed tracing
+# Excluded paths: /health, /metrics (internal endpoints)
+app.add_middleware(
+    TracingMiddleware,
+    exclude_paths=["/health", "/metrics", "/"],
+)
+
+# WBS-OBS3: Add MetricsMiddleware for Prometheus metrics
+# Records RED metrics (Rate, Errors, Duration) for all routes
+app.add_middleware(
+    MetricsMiddleware,
+    exclude_paths=["/metrics"],
+)
+
 # WBS-PS5: Memory tracking and backpressure middleware
 # Prevents OOM by rejecting requests when memory exceeds threshold
 # or when concurrent request limit is reached
@@ -153,6 +192,10 @@ app.include_router(sessions_router)
 app.include_router(tools_router)
 app.include_router(models_router)
 app.include_router(responses_router)
+
+# WBS-OBS4: Mount /metrics endpoint for Prometheus scraping
+# Returns Prometheus text format metrics at http://localhost:8080/metrics
+app.mount("/metrics", get_metrics_app())
 
 
 # =============================================================================

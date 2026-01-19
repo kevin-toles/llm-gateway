@@ -32,6 +32,10 @@ from src.observability.metrics import (
     record_cache_operation,
     record_request_cost,
     record_token_usage,
+    # OBS-14: Provider-specific metrics
+    record_provider_request,
+    record_provider_error,
+    record_provider_latency,
 )
 
 from src.observability.tracing import (
@@ -60,6 +64,10 @@ __all__ = [
     "record_token_usage",
     "record_cache_operation",
     "record_request_cost",
+    # OBS-14: Provider metrics
+    "record_provider_request",
+    "record_provider_error",
+    "record_provider_latency",
     # Tracing
     "TracingMiddleware",
     "setup_tracing",

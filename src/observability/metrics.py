@@ -161,6 +161,32 @@ REQUEST_COST_DOLLARS = Histogram(
     buckets=(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0),
 )
 
+# =============================================================================
+# OBS-14: Provider-Specific Metrics (Migrated from health.py)
+# =============================================================================
+
+# Total requests by provider (for provider-level observability)
+PROVIDER_REQUESTS_TOTAL = Counter(
+    name="llm_gateway_provider_requests_total",
+    documentation="Total requests to LLM providers",
+    labelnames=["provider"],
+)
+
+# Total errors by provider (for provider-level observability)
+PROVIDER_ERRORS_TOTAL = Counter(
+    name="llm_gateway_provider_errors_total",
+    documentation="Total errors from LLM providers",
+    labelnames=["provider", "error_type"],
+)
+
+# Latency by provider (for SLA monitoring)
+PROVIDER_LATENCY_SECONDS = Histogram(
+    name="llm_gateway_provider_latency_seconds",
+    documentation="LLM provider response latency in seconds",
+    labelnames=["provider"],
+    buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+)
+
 
 # =============================================================================
 # Helper Functions
@@ -216,6 +242,43 @@ def record_request_cost(
         provider=provider,
         model=model,
     ).observe(cost)
+
+
+# =============================================================================
+# OBS-14: Provider-Specific Helper Functions
+# =============================================================================
+
+
+def record_provider_request(provider: str) -> None:
+    """
+    Record a request to an LLM provider.
+
+    Args:
+        provider: LLM provider name (anthropic, openai, gemini, local)
+    """
+    PROVIDER_REQUESTS_TOTAL.labels(provider=provider).inc()
+
+
+def record_provider_error(provider: str, error_type: str = "unknown") -> None:
+    """
+    Record an error from an LLM provider.
+
+    Args:
+        provider: LLM provider name
+        error_type: Type of error (timeout, rate_limit, auth, api_error, etc.)
+    """
+    PROVIDER_ERRORS_TOTAL.labels(provider=provider, error_type=error_type).inc()
+
+
+def record_provider_latency(provider: str, latency_seconds: float) -> None:
+    """
+    Record the latency of an LLM provider response.
+
+    Args:
+        provider: LLM provider name
+        latency_seconds: Response time in seconds
+    """
+    PROVIDER_LATENCY_SECONDS.labels(provider=provider).observe(latency_seconds)
 
 
 # =============================================================================

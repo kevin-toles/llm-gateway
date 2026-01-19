@@ -312,6 +312,23 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # WBS-OBS7: OpenTelemetry Tracing Configuration
+    # =========================================================================
+    otlp_endpoint: str | None = Field(
+        default=None,
+        description="OTLP exporter endpoint (e.g., http://localhost:4317). None = console exporter",
+        validation_alias="OTLP_ENDPOINT",
+    )
+    tracing_enabled: bool = Field(
+        default=True,
+        description="Enable OpenTelemetry tracing",
+    )
+    metrics_enabled: bool = Field(
+        default=True,
+        description="Enable Prometheus metrics",
+    )
+
+    # =========================================================================
     # WBS 2.1.2.1.11: Environment Prefix Configuration
     # =========================================================================
     model_config = {
