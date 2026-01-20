@@ -15,6 +15,10 @@ Anti-Patterns Avoided:
 - ANTI_PATTERN_ANALYSIS §1.1: Optional types with explicit None
 - ANTI_PATTERN_ANALYSIS §3.1: No bare except clauses
 - ANTI_PATTERN_ANALYSIS §4.1: Cognitive complexity < 15 per function
+
+WBS-MCE0: CMS Integration
+- Routes Tier 2+ requests through CMS for token management
+- Adds X-CMS-* response headers for observability
 """
 
 import os
@@ -23,8 +27,8 @@ import uuid
 import logging
 from typing import Optional, AsyncGenerator, Union
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import APIRouter, Depends, Header, Request
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 
 from src.core.exceptions import ProviderError
 from src.models.requests import ChatCompletionRequest
@@ -36,6 +40,20 @@ from src.models.responses import (
     ChatCompletionChunk,
     ChunkChoice,
     ChunkDelta,
+)
+
+# WBS-MCE0: CMS routing integration
+from src.api.routes.cms_routing import (
+    estimate_tokens_from_messages,
+    get_context_limit,
+    calculate_tier,
+    parse_cms_mode,
+    should_route_to_cms,
+    get_cms_action,
+    build_cms_response_headers,
+    cms_required_for_tier,
+    handle_cms_unavailable,
+    get_cms_client_instance,
 )
 
 
@@ -313,7 +331,8 @@ router = APIRouter(prefix="/v1/chat", tags=["Chat"])
 async def create_chat_completion(
     request: ChatCompletionRequest,
     chat_service: RealChatService = Depends(get_chat_service),
-) -> ChatCompletionResponse | StreamingResponse | JSONResponse:
+    x_cms_mode: Optional[str] = Header(None, alias="X-CMS-Mode"),
+) -> ChatCompletionResponse | StreamingResponse | JSONResponse | Response:
     """
     Create a chat completion (streaming or non-streaming).
 
@@ -321,6 +340,7 @@ async def create_chat_completion(
     WBS 2.2.2.3.2: Returns OpenAI-compatible response
     WBS 2.2.2.3.9: Provider errors return 502 Bad Gateway
     WBS 2.2.3.2.1: Supports streaming with stream=true
+    WBS-MCE0: CMS integration with tier-based routing
 
     Pattern: Dependency injection for service layer (Sinha p. 90)
     Pattern: Pydantic request validation (Sinha pp. 193-195)
@@ -330,6 +350,7 @@ async def create_chat_completion(
     Args:
         request: Chat completion request with messages and parameters
         chat_service: Injected chat service dependency
+        x_cms_mode: Optional CMS mode header (none, validate, optimize, plan, auto)
 
     Returns:
         ChatCompletionResponse: Full response (non-streaming)
@@ -338,9 +359,55 @@ async def create_chat_completion(
 
     Raises:
         HTTPException 422: Request validation failed
+        HTTPException 503: CMS unavailable for Tier 3+ requests
         JSONResponse 502: Provider error (upstream failure)
     """
     logger.debug(f"Chat completion request: model={request.model}, stream={request.stream}")
+    
+    # ==========================================================================
+    # WBS-MCE0: CMS Tier Calculation and Routing
+    # ==========================================================================
+    
+    # Convert messages to dicts for token estimation
+    messages_dicts = [
+        {"role": msg.role, "content": msg.content or ""}
+        for msg in request.messages
+    ]
+    
+    # Calculate token tier
+    token_count = estimate_tokens_from_messages(messages_dicts, request.model)
+    context_limit = get_context_limit(request.model)
+    tier = calculate_tier(token_count, context_limit)
+    
+    # Parse CMS mode from header
+    cms_mode = parse_cms_mode(x_cms_mode)
+    
+    # Determine if we should route to CMS
+    route_to_cms = should_route_to_cms(tier, cms_mode)
+    
+    # For Tier 3+, verify CMS is available
+    if cms_required_for_tier(tier) and cms_mode != "none":
+        cms_client = get_cms_client_instance()
+        if cms_client:
+            is_healthy = await cms_client.health_check()
+            if not is_healthy:
+                handle_cms_unavailable(tier)
+        else:
+            # No CMS client configured - check if required
+            if tier >= 3 and cms_mode != "none":
+                handle_cms_unavailable(tier)
+    
+    # Build CMS response headers
+    cms_headers = build_cms_response_headers(
+        routed=route_to_cms,
+        tier=tier,
+        token_count=token_count,
+        token_limit=context_limit,
+    )
+    
+    # ==========================================================================
+    # End CMS Integration
+    # ==========================================================================
     
     # Check for Responses API models - they should use /v1/responses endpoint
     RESPONSES_API_MODELS = {"gpt-5.2-pro", "gpt-5.1-pro", "gpt-5-pro", "o3", "o3-mini", "o1", "o1-mini", "o1-preview"}
@@ -359,13 +426,21 @@ async def create_chat_completion(
 
     try:
         if request.stream:
+            # For streaming, add CMS headers to the StreamingResponse
             return StreamingResponse(
                 _stream_sse_generator(chat_service, request),
                 media_type="text/event-stream",
+                headers=cms_headers,
             )
 
         # Issue 27: Real ChatService uses complete(), not create_completion()
-        return await chat_service.complete(request)
+        response = await chat_service.complete(request)
+        
+        # Wrap response in JSONResponse to add CMS headers
+        return JSONResponse(
+            content=response.model_dump(),
+            headers=cms_headers,
+        )
 
     except ProviderError as e:
         # WBS 2.2.2.3.9: Translate provider errors to 502 Bad Gateway
