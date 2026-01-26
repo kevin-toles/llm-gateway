@@ -38,6 +38,14 @@ from src.observability.metrics import (
     record_provider_latency,
 )
 
+# OBS-5: Import resilience metrics for Prometheus registry inclusion
+# These metrics are automatically registered when imported
+from src.resilience.metrics import (
+    record_circuit_state_transition,
+    record_fallback_attempt,
+    record_fallback_success,
+)
+
 from src.observability.tracing import (
     TracingMiddleware,
     create_span,
@@ -68,6 +76,10 @@ __all__ = [
     "record_provider_request",
     "record_provider_error",
     "record_provider_latency",
+    # OBS-5: Resilience metrics
+    "record_circuit_state_transition",
+    "record_fallback_attempt",
+    "record_fallback_success",
     # Tracing
     "TracingMiddleware",
     "setup_tracing",
