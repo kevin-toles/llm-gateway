@@ -26,6 +26,9 @@ from src.core.exceptions import ProviderError
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Constants
+CONTENT_TYPE_JSON = "application/json"
+
 
 # =============================================================================
 # Responses API Request Models
@@ -271,7 +274,7 @@ class ResponsesService:
                 json=payload,
                 headers={
                     "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
+                    "Content-Type": CONTENT_TYPE_JSON,
                 },
             )
             
@@ -288,6 +291,48 @@ class ResponsesService:
         
         # Transform to our response model
         return self._transform_response(data)
+    
+    def _extract_content_text(self, content: list[Any]) -> str:
+        """Extract text from content array format."""
+        text_parts = []
+        for c in content:
+            if isinstance(c, dict) and c.get("type") == "input_text":
+                text_parts.append(c.get("text", ""))
+            elif isinstance(c, str):
+                text_parts.append(c)
+        return "\n".join(text_parts)
+    
+    def _convert_input_item_to_message(self, item: Any) -> Optional[dict[str, str]]:
+        """Convert a single input item to a message dict."""
+        if isinstance(item, dict):
+            role = item.get("role", "user")
+            content = item.get("content", "")
+            if isinstance(content, list):
+                content = self._extract_content_text(content)
+            return {"role": role, "content": content}
+        if isinstance(item, str):
+            return {"role": "user", "content": item}
+        return None
+    
+    def _convert_input_to_messages(self, input_data: Union[str, list[Any]]) -> list[dict[str, str]]:
+        """Convert input (string or list) to messages format."""
+        if isinstance(input_data, str):
+            return [{"role": "user", "content": input_data}]
+        messages = []
+        for item in input_data:
+            msg = self._convert_input_item_to_message(item)
+            if msg:
+                messages.append(msg)
+        return messages
+    
+    def _add_optional_params(
+        self, payload: dict[str, Any], request: ResponsesRequest
+    ) -> None:
+        """Add optional parameters to payload."""
+        if request.temperature is not None:
+            payload["temperature"] = request.temperature
+        if request.top_p is not None:
+            payload["top_p"] = request.top_p
     
     async def _create_anthropic_response(self, request: ResponsesRequest) -> ResponsesResponse:
         """
@@ -313,27 +358,8 @@ class ResponsesService:
         }
         model = MODEL_ALIASES.get(request.model, request.model)
         
-        # Convert input to Anthropic messages format
-        messages = []
-        if isinstance(request.input, str):
-            messages = [{"role": "user", "content": request.input}]
-        elif isinstance(request.input, list):
-            for item in request.input:
-                if isinstance(item, dict):
-                    role = item.get("role", "user")
-                    content = item.get("content", "")
-                    if isinstance(content, list):
-                        # Handle content array format
-                        text_parts = []
-                        for c in content:
-                            if isinstance(c, dict) and c.get("type") == "input_text":
-                                text_parts.append(c.get("text", ""))
-                            elif isinstance(c, str):
-                                text_parts.append(c)
-                        content = "\n".join(text_parts)
-                    messages.append({"role": role, "content": content})
-                elif isinstance(item, str):
-                    messages.append({"role": "user", "content": item})
+        # Convert input to messages format
+        messages = self._convert_input_to_messages(request.input)
         
         # Build the request payload
         payload: dict[str, Any] = {
@@ -347,10 +373,7 @@ class ResponsesService:
             payload["system"] = request.instructions
         
         # Add optional parameters
-        if request.temperature is not None:
-            payload["temperature"] = request.temperature
-        if request.top_p is not None:
-            payload["top_p"] = request.top_p
+        self._add_optional_params(payload, request)
         
         # Call Anthropic Messages API
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -360,7 +383,7 @@ class ResponsesService:
                 headers={
                     "x-api-key": api_key,
                     "anthropic-version": "2023-06-01",
-                    "Content-Type": "application/json",
+                    "Content-Type": CONTENT_TYPE_JSON,
                 },
             )
             
@@ -469,25 +492,8 @@ class ResponsesService:
         if request.instructions:
             messages.append({"role": "system", "content": request.instructions})
         
-        if isinstance(request.input, str):
-            messages.append({"role": "user", "content": request.input})
-        elif isinstance(request.input, list):
-            for item in request.input:
-                if isinstance(item, dict):
-                    role = item.get("role", "user")
-                    content = item.get("content", "")
-                    if isinstance(content, list):
-                        # Handle content array format
-                        text_parts = []
-                        for c in content:
-                            if isinstance(c, dict) and c.get("type") == "input_text":
-                                text_parts.append(c.get("text", ""))
-                            elif isinstance(c, str):
-                                text_parts.append(c)
-                        content = "\n".join(text_parts)
-                    messages.append({"role": role, "content": content})
-                elif isinstance(item, str):
-                    messages.append({"role": "user", "content": item})
+        # Add user/assistant messages
+        messages.extend(self._convert_input_to_messages(request.input))
         
         # Build the request payload
         payload: dict[str, Any] = {
@@ -498,10 +504,7 @@ class ResponsesService:
         # Add optional parameters
         if request.max_output_tokens:
             payload["max_tokens"] = request.max_output_tokens
-        if request.temperature is not None:
-            payload["temperature"] = request.temperature
-        if request.top_p is not None:
-            payload["top_p"] = request.top_p
+        self._add_optional_params(payload, request)
         
         # Call DeepSeek Chat API
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -510,7 +513,7 @@ class ResponsesService:
                 json=payload,
                 headers={
                     "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
+                    "Content-Type": CONTENT_TYPE_JSON,
                 },
             )
             

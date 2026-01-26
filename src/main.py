@@ -47,6 +47,9 @@ ENV = os.getenv("LLM_GATEWAY_ENV", "development")
 LOG_LEVEL = os.getenv("LLM_GATEWAY_LOG_LEVEL", "INFO")
 CORS_ORIGINS = os.getenv("LLM_GATEWAY_CORS_ORIGINS", "")
 
+# Path constants to avoid duplicate literals
+METRICS_PATH = "/metrics"
+
 
 def get_cors_origins() -> list[str]:
     """
@@ -107,7 +110,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         app.state.tracer_provider = tracer_provider
         logger.info(
-            f"OpenTelemetry tracing initialized",
+            "OpenTelemetry tracing initialized",
             extra={"otlp_endpoint": settings.otlp_endpoint or "console"}
         )
     
@@ -170,14 +173,14 @@ app.add_middleware(
 # Excluded paths: /health, /metrics (internal endpoints)
 app.add_middleware(
     TracingMiddleware,
-    exclude_paths=["/health", "/metrics", "/"],
+    exclude_paths=["/health", METRICS_PATH, "/"],
 )
 
 # WBS-OBS3: Add MetricsMiddleware for Prometheus metrics
 # Records RED metrics (Rate, Errors, Duration) for all routes
 app.add_middleware(
     MetricsMiddleware,
-    exclude_paths=["/metrics"],
+    exclude_paths=[METRICS_PATH],
 )
 
 # WBS-PS5: Memory tracking and backpressure middleware
@@ -195,7 +198,7 @@ app.include_router(responses_router)
 
 # WBS-OBS4: Mount /metrics endpoint for Prometheus scraping
 # Returns Prometheus text format metrics at http://localhost:8080/metrics
-app.mount("/metrics", get_metrics_app())
+app.mount(METRICS_PATH, get_metrics_app())
 
 
 # =============================================================================

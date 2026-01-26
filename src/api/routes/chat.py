@@ -321,6 +321,54 @@ from src.services.chat import ChatService as RealChatService
 
 router = APIRouter(prefix="/v1/chat", tags=["Chat"])
 
+# Models that require the Responses API endpoint
+RESPONSES_API_MODELS = frozenset({
+    "gpt-5.2-pro", "gpt-5.1-pro", "gpt-5-pro", 
+    "o3", "o3-mini", "o1", "o1-mini", "o1-preview"
+})
+
+
+async def _verify_cms_availability(tier: int, cms_mode: str) -> None:
+    """Verify CMS is available for requests that require it.
+    
+    Args:
+        tier: Token tier (1-4)
+        cms_mode: CMS mode from header
+        
+    Raises:
+        HTTPException: If CMS is required but unavailable
+    """
+    if not cms_required_for_tier(tier) or cms_mode == "none":
+        return
+    
+    cms_client = get_cms_client_instance()
+    if cms_client:
+        is_healthy = await cms_client.health_check()
+        if not is_healthy:
+            handle_cms_unavailable(tier)
+    elif tier >= 3 and cms_mode != "none":
+        handle_cms_unavailable(tier)
+
+
+def _check_responses_api_model(model: str) -> JSONResponse | None:
+    """Check if model requires Responses API endpoint.
+    
+    Returns JSONResponse with error if model is not supported, None otherwise.
+    """
+    if model in RESPONSES_API_MODELS:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": {
+                    "message": f"Model '{model}' uses the Responses API and is not supported "
+                              f"in the v1/chat/completions endpoint. Please use POST /v1/responses instead.",
+                    "type": "invalid_request_error",
+                    "code": "model_not_supported",
+                }
+            },
+        )
+    return None
+
 
 # =============================================================================
 # Chat Completions Endpoint - WBS 2.2.2.3, WBS 2.2.3
@@ -364,6 +412,10 @@ async def create_chat_completion(
     """
     logger.debug(f"Chat completion request: model={request.model}, stream={request.stream}")
     
+    # Check for Responses API models first
+    if error_response := _check_responses_api_model(request.model):
+        return error_response
+    
     # ==========================================================================
     # WBS-MCE0: CMS Tier Calculation and Routing
     # ==========================================================================
@@ -386,16 +438,7 @@ async def create_chat_completion(
     route_to_cms = should_route_to_cms(tier, cms_mode)
     
     # For Tier 3+, verify CMS is available
-    if cms_required_for_tier(tier) and cms_mode != "none":
-        cms_client = get_cms_client_instance()
-        if cms_client:
-            is_healthy = await cms_client.health_check()
-            if not is_healthy:
-                handle_cms_unavailable(tier)
-        else:
-            # No CMS client configured - check if required
-            if tier >= 3 and cms_mode != "none":
-                handle_cms_unavailable(tier)
+    await _verify_cms_availability(tier, cms_mode)
     
     # Build CMS response headers
     cms_headers = build_cms_response_headers(
@@ -408,21 +451,6 @@ async def create_chat_completion(
     # ==========================================================================
     # End CMS Integration
     # ==========================================================================
-    
-    # Check for Responses API models - they should use /v1/responses endpoint
-    RESPONSES_API_MODELS = {"gpt-5.2-pro", "gpt-5.1-pro", "gpt-5-pro", "o3", "o3-mini", "o1", "o1-mini", "o1-preview"}
-    if request.model in RESPONSES_API_MODELS:
-        return JSONResponse(
-            status_code=404,
-            content={
-                "error": {
-                    "message": f"Model '{request.model}' uses the Responses API and is not supported "
-                              f"in the v1/chat/completions endpoint. Please use POST /v1/responses instead.",
-                    "type": "invalid_request_error",
-                    "code": "model_not_supported",
-                }
-            },
-        )
 
     try:
         if request.stream:
