@@ -6,6 +6,48 @@
 
 ## Changelog
 
+### 2026-01-26: Chat and Responses Routes Enhancement (CL-009)
+
+**Summary**: Refactored chat and responses route handlers with improved error handling and response formatting.
+
+**Commit:** `52f8d58`
+
+**Files Changed:**
+
+| File | Changes |
+|------|---------|
+| `src/api/routes/chat.py` | +78 lines: Improved chat handling |
+| `src/api/routes/responses.py` | +105 lines: Enhanced response formatting |
+| `src/main.py` | +11 lines: Route registration updates |
+
+---
+
+### 2026-01-25: OBS-5 Resilience Metrics Export (CL-008)
+
+**Summary**: Added Prometheus export for circuit breaker and resilience metrics, completing the observability integration.
+
+**Commit:** `c7e0707`
+
+**New Metrics:**
+
+| Metric | Type | Purpose |
+|--------|------|---------|
+| `circuit_breaker_state` | Gauge | Current circuit state (open/closed/half-open) |
+| `circuit_breaker_failures` | Counter | Failure count triggering circuit open |
+| `retry_attempts_total` | Counter | Retry attempt count by operation |
+
+**Files Changed:**
+
+| File | Changes |
+|------|---------|
+| `src/observability/__init__.py` | +12 lines: Resilience metrics export |
+
+**Cross-References:**
+- WBS-OBS-5: Resilience metrics work package
+- CL-005: Resilience layer implementation
+
+---
+
 ### 2026-01-18: WBS-OBS OpenTelemetry and Prometheus (CL-007)
 
 **Summary**: Wired OpenTelemetry tracing and Prometheus metrics for full observability integration.
