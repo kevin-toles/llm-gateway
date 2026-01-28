@@ -1,0 +1,33 @@
+{{/* ==========================================================================
+LLM Gateway - Pod Disruption Budget Template
+==========================================================================
+Creates a PDB resource to ensure high availability during voluntary disruptions.
+Conditional creation based on podDisruptionBudget.enabled value.
+Supports:
+- minAvailable (minimum pods that must remain available)
+- maxUnavailable (maximum pods that can be unavailable)
+Note: Only one of minAvailable or maxUnavailable can be set.
+========================================================================== */}}
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "llm-gateway.fullname" . }}
+  namespace: {{ include "llm-gateway.namespace" . }}
+  labels:
+    {{- include "llm-gateway.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  minAvailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "llm-gateway.selectorLabels" . | nindent 6 }}
+  {{- if .Values.podDisruptionBudget.unhealthyPodEvictionPolicy }}
+  unhealthyPodEvictionPolicy: {{ .Values.podDisruptionBudget.unhealthyPodEvictionPolicy }}
+  {{- end }}
+{{- end }}

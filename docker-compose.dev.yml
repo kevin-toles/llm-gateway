@@ -1,0 +1,123 @@
+# ==============================================================================
+# LLM Gateway - Docker Compose Development Override
+# ==============================================================================
+# WBS: 3.4.2.1 - Local Development Setup
+# Reference: docs/DEPLOYMENT_IMPLEMENTATION_PLAN.md
+# Reference: docs/ARCHITECTURE.md - Service Discovery Patterns
+# ==============================================================================
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Features:
+#   - Hot-reload on source code changes (WBS 3.4.2.1.1)
+#   - Source code volume mounts (WBS 3.4.2.1.2)
+#   - Debug logging enabled (WBS 3.4.2.1.3)
+#   - Additional debug ports exposed (WBS 3.4.2.1.4)
+#   - Single worker for easier debugging
+#   - No restart policy (fail fast for development)
+#
+# Hot-Reload Test (WBS 3.4.2.1.6):
+#   1. Start services: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+#   2. Edit src/main.py or any file in src/
+#   3. Observe uvicorn auto-reload in logs (no rebuild required)
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # LLM Gateway - Development Overrides
+  # WBS 3.4.2.1.1: Hot-reload enabled via uvicorn --reload
+  # ============================================================================
+  llm-gateway:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.dev
+    
+    # WBS 3.4.2.1.2: Mount source code as volumes for hot-reload
+    volumes:
+      # Source code - changes trigger hot-reload
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+      - ./scripts:/app/scripts:ro
+      
+      # Logs - persist outside container for debugging
+      - ./logs:/app/logs
+      
+      # Tests - for running tests inside container
+      - ./tests:/app/tests:ro
+      
+      # pyproject.toml for tool configurations
+      - ./pyproject.toml:/app/pyproject.toml:ro
+    
+    # WBS 3.4.2.1.3: Enable debug logging
+    environment:
+      LLM_GATEWAY_ENV: development
+      LLM_GATEWAY_LOG_LEVEL: DEBUG
+      LLM_GATEWAY_WORKERS: "1"  # Single worker for easier debugging
+      
+      # Python debug settings
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONFAULTHANDLER: "1"  # Better error messages
+      
+      # Disable rate limiting in development
+      LLM_GATEWAY_RATE_LIMIT_REQUESTS_PER_MINUTE: "10000"
+      
+      # Extended session for development
+      LLM_GATEWAY_SESSION_TTL_SECONDS: "86400"  # 24 hours
+    
+    # WBS 3.4.2.1.4: Expose additional ports for debugging
+    ports:
+      - "8080:8080"     # Main API port
+      - "5678:5678"     # debugpy remote debugging port
+    
+    # Override command for hot-reload
+    # Reference: deploy/docker/Dockerfile.dev CMD
+    command: >
+      uvicorn src.main:app 
+      --host 0.0.0.0 
+      --port 8080 
+      --reload 
+      --reload-dir /app/src
+      --log-level debug
+    
+    # No restart in dev - fail fast to see errors
+    restart: "no"
+    
+    # Interactive mode for debugging
+    stdin_open: true
+    tty: true
+    
+    # Relaxed healthcheck for development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 60s  # Less frequent in dev
+      timeout: 30s   # More lenient timeout
+      retries: 5
+      start_period: 30s  # More time for startup with --reload
+
+  # ============================================================================
+  # Semantic Search - Development Overrides
+  # ============================================================================
+  semantic-search:
+    restart: "no"
+    healthcheck:
+      interval: 60s
+      start_period: 15s
+
+  # ============================================================================
+  # AI Agents - Development Overrides
+  # ============================================================================
+  ai-agents:
+    restart: "no"
+    healthcheck:
+      interval: 60s
+      start_period: 15s
+
+  # ============================================================================
+  # Redis - Development Overrides
+  # ============================================================================
+  redis:
+    restart: "no"
+    # No persistence needed in dev
+    command: redis-server --appendonly no
