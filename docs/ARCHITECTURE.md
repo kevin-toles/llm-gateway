@@ -1,5 +1,10 @@
 # LLM Gateway Microservice
 
+> **Version:** 2.0.0  
+> **Updated:** 2026-02-01  
+> **Status:** Active  
+> **Git Reference:** Cross-referenced with codebase 2026-02-01
+
 ## Overview
 
 The LLM Gateway is a **microservice** that provides a unified API for LLM interactions. It abstracts provider differences, orchestrates tool-use, manages sessions, and provides operational controls. Multiple applications consume this service over HTTP.
@@ -111,42 +116,71 @@ In the Kitchen Brigade architecture, **llm-gateway** is the **Router** - it dire
 ```
 llm-gateway/
 ├── src/
+│   ├── __init__.py
+│   ├── main.py                      # FastAPI app entry point
+│   │
 │   ├── api/
 │   │   ├── __init__.py
+│   │   ├── deps.py                  # FastAPI dependencies
 │   │   ├── routes/
 │   │   │   ├── __init__.py
 │   │   │   ├── chat.py              # POST /v1/chat/completions
+│   │   │   ├── cms_routing.py       # CMS proxy routes
+│   │   │   ├── health.py            # /health, /health/detailed, /health/ready
+│   │   │   ├── models.py            # /v1/models, /v1/providers
+│   │   │   ├── responses.py         # POST /v1/responses (OpenAI Responses API)
 │   │   │   ├── sessions.py          # /v1/sessions/*
-│   │   │   ├── tools.py             # /v1/tools/*
-│   │   │   └── health.py            # /health, /ready
-│   │   ├── middleware/
-│   │   │   ├── __init__.py
-│   │   │   ├── auth.py              # API key validation
-│   │   │   ├── rate_limit.py        # Request rate limiting
-│   │   │   └── logging.py           # Request/response logging
-│   │   └── deps.py                  # FastAPI dependencies
+│   │   │   └── tools.py             # /v1/tools/*
+│   │   └── middleware/
+│   │       ├── __init__.py
+│   │       ├── logging.py           # Request/response logging
+│   │       ├── memory.py            # Memory monitoring
+│   │       └── rate_limit.py        # Request rate limiting
 │   │
 │   ├── core/
 │   │   ├── __init__.py
 │   │   ├── config.py                # Pydantic settings
-│   │   └── exceptions.py            # Custom exceptions
+│   │   ├── exceptions.py            # Custom exceptions
+│   │   └── logging.py               # Structured logging
 │   │
-│   ├── providers/
+│   ├── providers/                   # LLM Provider Adapters
 │   │   ├── __init__.py
 │   │   ├── base.py                  # Abstract provider interface
-│   │   ├── anthropic.py             # Anthropic Claude adapter
-│   │   ├── openai.py                # OpenAI GPT adapter
-│   │   ├── ollama.py                # Ollama local adapter
+│   │   ├── anthropic.py             # Anthropic Claude
+│   │   ├── deepseek.py              # DeepSeek API
+│   │   ├── fake.py                  # Test/mock provider
+│   │   ├── gemini.py                # Google Gemini
+│   │   ├── inference.py             # Local inference-service
+│   │   ├── llamacpp.py              # LlamaCpp/GGUF models
+│   │   ├── ollama.py                # Ollama local
+│   │   ├── openai.py                # OpenAI GPT
+│   │   ├── openrouter.py            # OpenRouter (multi-provider)
 │   │   └── router.py                # Provider routing logic
 │   │
-│   ├── tools/
+│   ├── clients/                     # Service Clients
+│   │   ├── __init__.py
+│   │   ├── ai_agents.py             # ai-agents service client
+│   │   ├── circuit_breaker.py       # Circuit breaker pattern
+│   │   ├── cms_client.py            # Context Management Service client
+│   │   ├── http.py                  # Base HTTP client
+│   │   └── semantic_search.py       # semantic-search client
+│   │
+│   ├── tools/                       # Tool Execution
 │   │   ├── __init__.py
 │   │   ├── registry.py              # Tool registration
 │   │   ├── executor.py              # Tool execution orchestration
 │   │   └── builtin/
 │   │       ├── __init__.py
-│   │       ├── semantic_search.py   # Proxy to semantic-search-service
-│   │       └── chunk_retrieval.py   # Document chunk retrieval
+│   │       ├── architecture.py      # Architecture tools
+│   │       ├── chunk_retrieval.py   # Document chunk retrieval
+│   │       ├── code_orchestrator_tools.py  # Code-Orchestrator proxy
+│   │       ├── code_review.py       # Code review tools
+│   │       ├── cross_reference.py   # Cross-reference search
+│   │       ├── doc_generate.py      # Documentation generation
+│   │       ├── embed.py             # Embedding tools
+│   │       ├── enrich_metadata.py   # Metadata enrichment
+│   │       ├── hybrid_search.py     # Hybrid search proxy
+│   │       └── semantic_search.py   # Semantic search proxy
 │   │
 │   ├── sessions/
 │   │   ├── __init__.py
@@ -155,17 +189,28 @@ llm-gateway/
 │   │
 │   ├── services/
 │   │   ├── __init__.py
+│   │   ├── cache.py                 # Response caching
 │   │   ├── chat.py                  # Chat completion business logic
-│   │   ├── cost_tracker.py          # Token/cost tracking
-│   │   └── cache.py                 # Response caching
+│   │   └── cost_tracker.py          # Token/cost tracking
 │   │
 │   ├── models/
 │   │   ├── __init__.py
+│   │   ├── domain.py                # Domain models (Message, Tool, etc.)
 │   │   ├── requests.py              # Pydantic request models
 │   │   ├── responses.py             # Pydantic response models
-│   │   └── domain.py                # Domain models (Message, Tool, etc.)
+│   │   └── tools.py                 # Tool-related models
 │   │
-│   └── main.py                      # FastAPI app entry point
+│   ├── observability/               # Monitoring & Tracing
+│   │   ├── __init__.py
+│   │   ├── logging.py               # Structured logging
+│   │   ├── metrics.py               # Prometheus metrics
+│   │   └── tracing.py               # OpenTelemetry tracing
+│   │
+│   └── resilience/                  # Fault Tolerance
+│       ├── __init__.py
+│       ├── circuit_breaker_state_machine.py
+│       ├── fallback_chain.py        # Provider fallback
+│       └── metrics.py               # Resilience metrics
 │
 ├── tests/
 │   ├── unit/
@@ -177,55 +222,15 @@ llm-gateway/
 │   │   └── test_tool_execution.py
 │   └── conftest.py
 │
-├── config/
-│   ├── tools.json                   # Tool definitions
-│   └── providers.json               # Provider configurations
-│
-├── deploy/
-│   ├── docker/
-│   │   ├── Dockerfile               # Production multi-stage Dockerfile
-│   │   ├── Dockerfile.dev           # Development Dockerfile
-│   │   ├── docker-compose.yml       # Full stack compose
-│   │   ├── docker-compose.dev.yml   # Dev compose
-│   │   └── .env.example             # Environment template
-│   ├── kubernetes/
-│   │   ├── base/                    # Kustomize base manifests
-│   │   │   ├── deployment.yaml
-│   │   │   ├── service.yaml
-│   │   │   ├── configmap.yaml
-│   │   │   └── ...
-│   │   └── overlays/
-│   │       ├── dev/                 # Dev environment overlay
-│   │       ├── staging/             # Staging environment overlay
-│   │       └── prod/                # Production environment overlay
-│   └── helm/
-│       └── llm-gateway/             # Helm chart
-│           ├── Chart.yaml
-│           ├── values.yaml
-│           ├── values-dev.yaml
-│           ├── values-staging.yaml
-│           ├── values-prod.yaml
-│           ├── templates/           # Kubernetes templates
-│           └── tests/               # Helm unit tests
-│
-├── .github/
-│   └── workflows/
-│       ├── ci.yml                   # CI pipeline
-│       ├── cd-dev.yml               # Dev deployment
-│       ├── cd-staging.yml           # Staging deployment
-│       └── cd-prod.yml              # Production deployment
-│
 ├── docs/
 │   ├── ARCHITECTURE.md              # This file
-│   ├── API.md                       # API documentation
-│   └── DEPLOYMENT.md                # Deployment guide
-│
-├── scripts/
-│   ├── start.sh
-│   └── healthcheck.sh
+│   ├── TECHNICAL_CHANGE_LOG.md
+│   └── guides/
 │
 ├── Dockerfile
 ├── docker-compose.yml
+├── docker-compose.dev.yml
+├── docker-compose.hybrid.yml
 ├── pyproject.toml
 ├── requirements.txt
 └── README.md
@@ -289,12 +294,17 @@ llm-gateway/
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/v1/chat/completions` | LLM inference with optional tool-use |
+| POST | `/v1/responses` | OpenAI Responses API compatible endpoint |
+| GET | `/v1/models` | List available models |
+| GET | `/v1/models/{model_id}` | Get specific model info |
+| GET | `/v1/providers` | List available providers |
 | POST | `/v1/sessions` | Create new session |
 | GET | `/v1/sessions/{id}` | Get session state |
 | DELETE | `/v1/sessions/{id}` | Delete session |
 | POST | `/v1/tools/execute` | Execute a registered tool |
 | GET | `/health` | Health check |
-| GET | `/ready` | Readiness check |
+| GET | `/health/detailed` | Detailed health with dependency status |
+| GET | `/health/ready` | Readiness check |
 
 ---
 
@@ -424,15 +434,35 @@ Routes requests to the appropriate LLM provider based on model name or configura
 |------------|------|---------|
 | Redis | Infrastructure | Session storage, caching |
 | semantic-search-service | Microservice | Tool execution for search |
+| ai-agents | Microservice | Cross-reference, agent functions |
+| Code-Orchestrator | Microservice | Code analysis tools |
+| context-management-service | Microservice | Context/session management |
 | inference-service | Microservice | Local LLM inference (llamacpp provider) |
 | Anthropic API | External | LLM provider (cloud) |
 | OpenAI API | External | LLM provider (cloud) |
+| Google Gemini API | External | LLM provider (cloud) |
+| DeepSeek API | External | LLM provider (cloud) |
+| OpenRouter API | External | Multi-provider routing |
 
 ---
 
 ## Provider Routing
 
 The gateway routes LLM requests to the appropriate provider based on the `model` parameter:
+
+### Supported Providers (11 Total)
+
+| Provider | Models | Target |
+|----------|--------|--------|
+| `anthropic` | `claude-*` | Anthropic API |
+| `openai` | `gpt-*` | OpenAI API |
+| `gemini` | `gemini-*` | Google Gemini API |
+| `deepseek` | `deepseek-*` | DeepSeek API |
+| `openrouter` | Various | OpenRouter (multi-provider) |
+| `ollama` | `ollama/*` | Local Ollama server |
+| `llamacpp` | `local/*`, GGUF | inference-service:8085 |
+| `inference` | Via CMS | inference-service (managed) |
+| `fake` | `fake/*` | Test/mock responses |
 
 ### Provider Resolution
 
