@@ -20,14 +20,19 @@ WBS Items:
 - 2.8.1.1.6: Configure based on LOG_LEVEL setting
 - 2.8.1.1.7: Export get_logger() function
 - 2.8.1.1.16: Singleton configuration pattern (Issue 16)
+- AC-LOG0.2: RotatingFileHandler for persistent logs
 """
 
 import contextvars
+import json
 import logging
+import os
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Generator, Optional, TextIO
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Any, Generator, Optional, TextIO
 
 import structlog
 from structlog.types import EventDict, Processor
@@ -38,6 +43,7 @@ from structlog.types import EventDict, Processor
 # =============================================================================
 
 _configured: bool = False
+_file_logging_configured: bool = False
 
 
 # =============================================================================
@@ -168,6 +174,94 @@ def rename_level(
 
 
 # =============================================================================
+# AC-LOG0.2: File Logging Support
+# =============================================================================
+
+
+def _get_default_log_path() -> str:
+    """Get platform-appropriate default log file path.
+    
+    Returns:
+        macOS: ~/Library/Logs/ai-platform/llm-gateway/app.log
+        Linux: /var/log/llm-gateway/app.log
+    """
+    if sys.platform == "darwin":
+        home = Path.home()
+        return str(home / "Library" / "Logs" / "ai-platform" / "llm-gateway" / "app.log")
+    return "/var/log/llm-gateway/app.log"
+
+
+class JSONFormatter(logging.Formatter):
+    """JSON log formatter for file output (AC-LOG0.1)."""
+    
+    def __init__(self, service_name: str = "llm-gateway", **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.service_name = service_name
+    
+    def format(self, record: logging.LogRecord) -> str:
+        correlation_id = get_correlation_id()
+        log_data = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "service": self.service_name,
+            "correlation_id": correlation_id if correlation_id else "-",
+            "module": record.module,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            log_data["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_data, ensure_ascii=False)
+
+
+def _create_file_handler(
+    log_file_path: str,
+    service_name: str = "llm-gateway",
+    max_bytes: int = 10_485_760,  # 10 MB
+    backup_count: int = 5,
+) -> RotatingFileHandler:
+    """Create a rotating file handler for JSON logs (AC-LOG0.2)."""
+    log_dir = Path(log_file_path).parent
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    handler = RotatingFileHandler(
+        filename=log_file_path,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding="utf-8",
+    )
+    handler.setFormatter(JSONFormatter(service_name=service_name))
+    return handler
+
+
+def _setup_file_logging(log_level: int) -> None:
+    """Set up file logging if enabled and not already configured."""
+    global _file_logging_configured
+    
+    if _file_logging_configured:
+        return
+    
+    enable_file_logging = os.environ.get("LLM_GATEWAY_ENABLE_FILE_LOGGING", "true").lower() in ("true", "1", "yes")
+    
+    if not enable_file_logging:
+        _file_logging_configured = True
+        return
+    
+    log_file_path = os.environ.get("LLM_GATEWAY_LOG_FILE_PATH") or _get_default_log_path()
+    
+    try:
+        file_handler = _create_file_handler(log_file_path, "llm-gateway")
+        file_handler.setLevel(log_level)
+        # Add to root logger to capture all logs
+        root_logger = logging.getLogger()
+        root_logger.setLevel(log_level)
+        root_logger.addHandler(file_handler)
+        _file_logging_configured = True
+    except (PermissionError, OSError) as e:
+        print(f'{{"timestamp": "{datetime.now(timezone.utc).isoformat()}", "level": "WARNING", "service": "llm-gateway", "message": "File logging disabled: {e}"}}', file=sys.stderr)
+        _file_logging_configured = True
+
+
+# =============================================================================
 # WBS 2.8.1.1.16: Singleton Configuration (Issue 16)
 # =============================================================================
 
@@ -181,6 +275,7 @@ def configure_logging(
     Configure structlog for the application.
     
     WBS 2.8.1.1.16: Singleton configuration function.
+    AC-LOG0.2: Uses stdlib integration for file logging support.
     
     This should be called once at application startup. Subsequent calls
     are no-ops to avoid reconfiguration overhead, unless force=True.
@@ -200,26 +295,45 @@ def configure_logging(
     if _configured and not force:
         return
     
-    # Configure processors
+    log_level = _level_to_int(level)
+    
+    # Set up file logging first (AC-LOG0.2) - adds handler to root logger
+    _setup_file_logging(log_level)
+    
+    # Configure stdlib logging with console handler
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    
+    # Add console handler if not already present
+    has_console = any(isinstance(h, logging.StreamHandler) and not isinstance(h, RotatingFileHandler) for h in root_logger.handlers)
+    if not has_console:
+        console_handler = logging.StreamHandler(stream or sys.stdout)
+        console_handler.setLevel(log_level)
+        console_handler.setFormatter(JSONFormatter(service_name="llm-gateway"))
+        root_logger.addHandler(console_handler)
+    
+    # Configure structlog to use stdlib logging
     processors: list[Processor] = [
+        structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
         add_timestamp,
         add_correlation_id,
         rename_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
-        structlog.processors.JSONRenderer(),
+        structlog.processors.UnicodeDecoder(),
+        structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
     ]
 
-    # Configure structlog once
+    # Configure structlog to pass through to stdlib
     structlog.configure(
         processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(
-            _level_to_int(level)
-        ),
+        wrapper_class=structlog.stdlib.BoundLogger,
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(file=stream or sys.stdout),
-        cache_logger_on_first_use=False,  # Allow different loggers per call
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
     )
     
     _configured = True
@@ -233,8 +347,9 @@ def reset_logging() -> None:
     
     WARNING: This should only be used in tests.
     """
-    global _configured
+    global _configured, _file_logging_configured
     _configured = False
+    _file_logging_configured = False
 
 
 # =============================================================================
