@@ -25,6 +25,7 @@ Pattern: Command Executor (tool calls as commands)
 
 import json
 import logging
+import re
 from typing import Optional
 
 from src.models.domain import Message as DomainMessage, ToolCall
@@ -40,9 +41,77 @@ logger = logging.getLogger(__name__)
 # Default maximum tool call iterations to prevent infinite loops
 DEFAULT_MAX_TOOL_ITERATIONS = 10
 
+# Thinking tag detection for truncated reasoning (Qwen3, DeepSeek-R1)
+_THINKING_TAG_PATTERN = re.compile(
+    r"<(?:think|thinking|reasoning|r|internal_thought)>",
+    re.IGNORECASE,
+)
+_THINKING_CLOSE_PATTERN = re.compile(
+    r"</(?:think|thinking|reasoning|r|internal_thought)>",
+    re.IGNORECASE,
+)
+
+# Context management configuration
+DEFAULT_CHARS_PER_TOKEN = 4  # Conservative estimate for token counting
+CONTEXT_SAFETY_MARGIN = 0.85  # Use 85% of context limit to leave headroom
+DEFAULT_CONTEXT_LIMITS = {
+    # Local models (conservative for 16GB Mac)
+    "qwen3-8b": 2048,
+    "qwen2.5-7b": 4096,
+    "llama-3.2-3b": 4096,
+    # External models (full context)
+    "gpt-4": 8192,
+    "gpt-4-turbo": 128000,
+    "gpt-4o": 128000,
+    "claude-3-opus": 200000,
+    "claude-3-sonnet": 200000,
+    "claude-3-haiku": 200000,
+}
+
 
 class ChatServiceError(Exception):
     """Base exception for chat service errors."""
+
+
+class InfrastructureStatus:
+    """Track status of infrastructure services (CMS, RLM, Temporal)."""
+    
+    def __init__(self):
+        self.cms_available: bool = True
+        self.rlm_available: bool = True
+        self.temporal_available: bool = True
+        self.last_check: float = 0
+        self._failure_count: int = 0
+    
+    def mark_failure(self, service: str) -> None:
+        """Mark a service as failed and log alert."""
+        self._failure_count += 1
+        if service == "cms":
+            self.cms_available = False
+        elif service == "rlm":
+            self.rlm_available = False
+        elif service == "temporal":
+            self.temporal_available = False
+        
+        logger.warning(
+            "Infrastructure service %s unavailable (failure #%d). "
+            "Continuing with fallback mode.",
+            service,
+            self._failure_count,
+        )
+    
+    def mark_healthy(self, service: str) -> None:
+        """Mark service as recovered."""
+        if service == "cms":
+            self.cms_available = True
+        elif service == "rlm":
+            self.rlm_available = True
+        elif service == "temporal":
+            self.temporal_available = True
+
+
+# Global infrastructure status (shared across requests)
+_infra_status = InfrastructureStatus()
 
 
 class ChatService:
@@ -157,11 +226,39 @@ class ChatService:
         # WBS 2.6.1.1.7-8: Load and prepend session history
         messages = await self._build_messages_with_history(request)
 
+        # Proactive context management: check if we're approaching limits
+        context_limit = self._get_context_limit(request.model)
+        estimated_tokens = self._estimate_token_count(messages)
+        
+        if estimated_tokens > context_limit * CONTEXT_SAFETY_MARGIN:
+            logger.info(
+                "Proactive context management: %d tokens approaching limit %d for %s",
+                estimated_tokens,
+                context_limit,
+                request.model,
+            )
+            messages = await self._compress_context(
+                messages, 
+                context_limit,
+                request.model,
+            )
+
         # Create a working request with updated messages
         working_request = self._create_working_request(request, messages)
 
         # WBS 2.6.1.1.9: Initial provider call
         response = await provider.complete(working_request)
+
+        # Handle truncated thinking (Qwen3, DeepSeek-R1 thinking mode)
+        # If model exhausted tokens on thinking without answer, retry with /no_think
+        if self._has_truncated_thinking(response):
+            logger.info(
+                "Detected truncated thinking response, retrying with /no_think"
+            )
+            thinking_content = self._extract_thinking_content(response)
+            response = await self._retry_with_thinking_context(
+                provider, request, messages, thinking_content
+            )
 
         # WBS 2.6.1.1.10-12: Handle tool calls loop
         iteration = 0
@@ -268,6 +365,281 @@ class ChatService:
             and choice.message.tool_calls is not None
             and len(choice.message.tool_calls) > 0
         )
+
+    def _has_truncated_thinking(self, response: ChatCompletionResponse) -> bool:
+        """
+        Check if response is truncated thinking (Qwen3, DeepSeek-R1).
+        
+        Detects when model started thinking but hit token limit before
+        producing an answer. Pattern: finish_reason="length" + unclosed <think> tag.
+        
+        Args:
+            response: The chat completion response.
+            
+        Returns:
+            True if response contains truncated thinking block.
+        """
+        if not response.choices:
+            return False
+        
+        choice = response.choices[0]
+        content = choice.message.content or ""
+        
+        # Must be length-truncated
+        if choice.finish_reason != "length":
+            return False
+        
+        # Check for opened but not closed thinking tag
+        has_open = bool(_THINKING_TAG_PATTERN.search(content))
+        has_close = bool(_THINKING_CLOSE_PATTERN.search(content))
+        
+        return has_open and not has_close
+    
+    def _extract_thinking_content(self, response: ChatCompletionResponse) -> str:
+        """
+        Extract the thinking content from a truncated response.
+        
+        Strips the opening tag and returns raw thinking for context.
+        
+        Args:
+            response: Response with truncated thinking.
+            
+        Returns:
+            The thinking content without tags.
+        """
+        if not response.choices:
+            return ""
+        
+        content = response.choices[0].message.content or ""
+        
+        # Remove opening thinking tag
+        cleaned = _THINKING_TAG_PATTERN.sub("", content).strip()
+        return cleaned
+    
+    async def _retry_with_thinking_context(
+        self,
+        provider: LLMProvider,
+        original_request: ChatCompletionRequest,
+        messages: list[Message],
+        thinking_content: str,
+    ) -> ChatCompletionResponse:
+        """
+        Retry request with thinking as context and /no_think suffix.
+        
+        Uses the model's own reasoning as context to get a grounded answer.
+        Pattern: Think → Cache → Answer (RLM/CMS integration point).
+        
+        Args:
+            provider: The LLM provider to use.
+            original_request: Original request.
+            messages: Current message list.
+            thinking_content: Extracted thinking from first attempt.
+            
+        Returns:
+            Response with direct answer.
+        """
+        # Build new messages with thinking as assistant context
+        retry_messages = list(messages)
+        
+        # Add the thinking as an assistant message (provides context)
+        retry_messages.append(
+            Message(
+                role="assistant",
+                content=f"[Internal reasoning: {thinking_content[:500]}...]",
+            )
+        )
+        
+        # Get the last user message and append /no_think
+        last_user_idx = None
+        for i in range(len(retry_messages) - 1, -1, -1):
+            if retry_messages[i].role == "user":
+                last_user_idx = i
+                break
+        
+        if last_user_idx is not None:
+            original_content = retry_messages[last_user_idx].content or ""
+            if "/no_think" not in original_content:
+                retry_messages[last_user_idx] = Message(
+                    role="user",
+                    content=f"{original_content} /no_think",
+                )
+        
+        # Create retry request
+        retry_request = self._create_working_request(original_request, retry_messages)
+        
+        logger.debug("Retrying with thinking context, %d chars", len(thinking_content))
+        
+        return await provider.complete(retry_request)
+
+    # =========================================================================
+    # Context Management - Proactive token/context handling
+    # =========================================================================
+    
+    def _get_context_limit(self, model: str) -> int:
+        """
+        Get context limit for a model.
+        
+        Uses known limits or falls back to conservative default.
+        Future: Query CMS for dynamic limits based on model config.
+        
+        Args:
+            model: Model identifier.
+            
+        Returns:
+            Context limit in tokens.
+        """
+        # Check known limits
+        for model_key, limit in DEFAULT_CONTEXT_LIMITS.items():
+            if model_key in model.lower():
+                return limit
+        
+        # Conservative fallback for unknown models
+        return 4096
+    
+    def _estimate_token_count(self, messages: list[Message]) -> int:
+        """
+        Estimate token count from messages.
+        
+        Uses character-based estimation. Future: Use tiktoken or model tokenizer.
+        
+        Args:
+            messages: List of messages.
+            
+        Returns:
+            Estimated token count.
+        """
+        total_chars = 0
+        for msg in messages:
+            if msg.content:
+                total_chars += len(msg.content)
+            # Account for role and formatting overhead
+            total_chars += 10
+        
+        return total_chars // DEFAULT_CHARS_PER_TOKEN
+    
+    async def _compress_context(
+        self,
+        messages: list[Message],
+        context_limit: int,
+        model: str,
+    ) -> list[Message]:
+        """
+        Compress context to fit within limits.
+        
+        Strategies (in order):
+        1. Try CMS for intelligent summarization (if available)
+        2. Truncate middle messages (keep system + recent)
+        3. Hard truncate old messages
+        
+        Args:
+            messages: Original messages.
+            context_limit: Maximum tokens allowed.
+            model: Model identifier.
+            
+        Returns:
+            Compressed message list.
+        """
+        target_tokens = int(context_limit * CONTEXT_SAFETY_MARGIN)
+        
+        # Try CMS summarization if available
+        if _infra_status.cms_available:
+            try:
+                compressed = await self._cms_compress_context(messages, target_tokens)
+                if compressed:
+                    logger.info("Context compressed via CMS: %d -> %d messages",
+                               len(messages), len(compressed))
+                    return compressed
+            except Exception as e:
+                _infra_status.mark_failure("cms")
+                logger.warning("CMS compression failed, using fallback: %s", e)
+        
+        # Fallback: Keep system message + truncate middle + keep recent
+        return self._fallback_compress(messages, target_tokens)
+    
+    async def _cms_compress_context(
+        self,
+        messages: list[Message],
+        target_tokens: int,
+    ) -> list[Message] | None:
+        """
+        Use CMS to intelligently compress context.
+        
+        CMS can summarize conversation history while preserving key information.
+        
+        Args:
+            messages: Messages to compress.
+            target_tokens: Target token count.
+            
+        Returns:
+            Compressed messages or None if CMS unavailable.
+        """
+        # Import CMS client (lazy to avoid circular imports)
+        try:
+            from src.clients.cms_client import get_cms_client
+            
+            cms = get_cms_client()
+            if cms is None:
+                return None
+            
+            # TODO: Call CMS compression endpoint
+            # For now, return None to use fallback
+            # Future: cms.compress_context(messages, target_tokens)
+            return None
+            
+        except ImportError:
+            logger.debug("CMS client not available")
+            return None
+    
+    def _fallback_compress(
+        self,
+        messages: list[Message],
+        target_tokens: int,
+    ) -> list[Message]:
+        """
+        Fallback context compression without CMS.
+        
+        Strategy: Keep system message + last N messages that fit.
+        
+        Args:
+            messages: Original messages.
+            target_tokens: Target token count.
+            
+        Returns:
+            Truncated message list.
+        """
+        if not messages:
+            return messages
+        
+        result: list[Message] = []
+        tokens_used = 0
+        
+        # Always keep system message if present
+        if messages[0].role == "system":
+            result.append(messages[0])
+            tokens_used = self._estimate_token_count([messages[0]])
+            messages = messages[1:]
+        
+        # Add messages from end until we hit limit
+        messages_to_add: list[Message] = []
+        for msg in reversed(messages):
+            msg_tokens = self._estimate_token_count([msg])
+            if tokens_used + msg_tokens <= target_tokens:
+                messages_to_add.insert(0, msg)
+                tokens_used += msg_tokens
+            else:
+                break
+        
+        result.extend(messages_to_add)
+        
+        if len(result) < len(messages) + (1 if messages and messages[0].role == "system" else 0):
+            logger.info(
+                "Context truncated: kept %d of %d messages (~%d tokens)",
+                len(result),
+                len(messages) + len(result),
+                tokens_used,
+            )
+        
+        return result
 
     def _extract_tool_calls(
         self, response: ChatCompletionResponse
