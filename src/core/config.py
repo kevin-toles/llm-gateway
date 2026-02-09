@@ -254,12 +254,12 @@ class Settings(BaseSettings):
     # WBS 2.1.2.1.8: Provider Defaults
     # =========================================================================
     default_provider: str = Field(
-        default="anthropic",
-        description="Default LLM provider to use",
+        default="",
+        description="Default LLM provider (empty = reject unregistered models, per MSE anti-pattern 'Silent Fallback')",
     )
     default_model: str = Field(
-        default="claude-3-sonnet-20240229",
-        description="Default model to use for completions",
+        default="claude-sonnet-4-5-20250514",
+        description="Default model to use for completions (must be in EXTERNAL_MODELS registry)",
     )
 
     # =========================================================================

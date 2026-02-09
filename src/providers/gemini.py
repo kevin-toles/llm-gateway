@@ -52,9 +52,12 @@ logger = logging.getLogger(__name__)
 # Supported Models
 # =============================================================================
 
+# Registered models only — must match config/model_registry.yaml (external_owned)
 SUPPORTED_MODELS = [
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
+    "gemini-pro",
 ]
 
 # Default API base URL

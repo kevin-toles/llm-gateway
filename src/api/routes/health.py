@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 # WBS-PS5: Memory health metrics
 from src.api.middleware.memory import get_memory_health
+from src.providers.router import ProviderRouter
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -267,53 +268,24 @@ class HealthService:
             logger.warning(f"AI agents health check failed: {e}")
             return False
 
-    async def check_inference_service_health(self) -> tuple[bool, int]:
+    async def check_cloud_providers_health(self) -> tuple[bool, int]:
         """
-        Check inference-service connectivity and model availability.
+        Check cloud provider availability.
 
-        CRITICAL FIX: llm-gateway must report unhealthy when inference-service is down.
-        This prevents protocol execution from timing out on unavailable backend.
+        The gateway manages ONLY external/cloud models (service boundary).
+        Local/inference models are managed by CMS, not the gateway.
+        Returns the count of registered external models from EXTERNAL_MODELS.
 
         Returns:
-            tuple[bool, int]: (is_healthy, model_count)
-            - is_healthy: True if inference-service is reachable and has models loaded
-            - model_count: Number of models available (0 if service down)
+            tuple[bool, int]: (is_healthy, registered_model_count)
+            - is_healthy: True if at least one cloud provider has an API key
+            - registered_model_count: Number of registered external models
 
         Pattern: Graceful degradation with accurate status reporting (Newman pp. 352-353)
-        Anti-pattern avoided: §3.1 Bare Except - exceptions logged with context
-        Anti-pattern avoided: §67 Connection pooling - uses context manager
         """
-        inference_url = os.getenv("INFERENCE_SERVICE_URL", "http://localhost:8085")
-        
-        try:
-            import httpx
-
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                # Check health first
-                health_response = await client.get(f"{inference_url}/health")
-                if health_response.status_code != 200:
-                    logger.warning(f"Inference service unhealthy: status {health_response.status_code}")
-                    return False, 0
-                
-                # Get model count
-                models_response = await client.get(f"{inference_url}/v1/models")
-                if models_response.status_code == 200:
-                    data = models_response.json()
-                    model_count = len(data.get("data", []))
-                    return True, model_count
-                else:
-                    logger.warning(f"Inference service models endpoint returned {models_response.status_code}")
-                    return True, 0
-
-        except httpx.ConnectError as e:
-            logger.warning(f"Inference service connection failed: {e}")
-            return False, 0
-        except httpx.TimeoutException as e:
-            logger.warning(f"Inference service health check timeout: {e}")
-            return False, 0
-        except Exception as e:
-            logger.warning(f"Inference service health check failed: {e}")
-            return False, 0
+        registered_count = len(ProviderRouter.EXTERNAL_MODELS)
+        has_providers = registered_count > 0
+        return has_providers, registered_count
 
 
 # =============================================================================
@@ -366,8 +338,8 @@ async def health_check() -> HealthResponse:
     return HealthResponse(
         status="healthy", 
         version=APP_VERSION,
-        models_available=0,  # Use /health/detailed for actual count
-        inference_service="unchecked",  # Use /health/detailed
+        models_available=len(ProviderRouter.EXTERNAL_MODELS),
+        inference_service="not_managed",  # Gateway manages external models only; CMS manages inference
     )
 
 
@@ -386,32 +358,31 @@ async def detailed_health_check(
         DetailedHealthResponse: Health status with memory/backpressure/inference details
     """
     mem_health = get_memory_health()
-    inference_healthy, model_count = await health_service.check_inference_service_health()
+    providers_healthy, model_count = await health_service.check_cloud_providers_health()
     
-    # Status is degraded if under memory pressure OR inference-service down
+    # Status is degraded if under memory pressure or no cloud providers registered
     memory_status = mem_health.get("status", "healthy")
     
-    if inference_healthy and model_count > 0:
-        inference_status = "up"
-    elif inference_healthy:
-        inference_status = "up_no_models"
+    # Gateway manages cloud providers only; inference-service is managed by CMS
+    if providers_healthy and model_count > 0:
+        providers_status = "registered"
     else:
-        inference_status = "down"
+        providers_status = "no_providers"
     
-    # Overall status: worst of memory and inference
-    if memory_status == "degraded" or not inference_healthy or model_count == 0:
+    # Overall status: worst of memory and provider registration
+    if memory_status == "degraded" or not providers_healthy:
         status = "degraded"
     else:
         status = memory_status
     
-    if not inference_healthy:
+    if not providers_healthy:
         response.status_code = 503
     
     return DetailedHealthResponse(
         status=status,
         version=APP_VERSION,
         models_available=model_count,
-        inference_service=inference_status,
+        inference_service=providers_status,  # field reused; shows cloud provider status
         memory=mem_health.get("memory"),
         backpressure=mem_health.get("backpressure"),
     )
@@ -448,24 +419,25 @@ async def readiness_check(
     Pattern: Graceful degradation (Newman pp. 352-353)
     """
     # Check all dependencies concurrently
+    # NOTE: Gateway manages cloud providers only. Inference-service is managed by CMS.
     redis_healthy = await health_service.check_redis()
     semantic_search_healthy = await health_service.check_semantic_search_health()
     ai_agents_healthy = await health_service.check_ai_agents_health()
-    inference_healthy, model_count = await health_service.check_inference_service_health()
+    providers_healthy, model_count = await health_service.check_cloud_providers_health()
 
     checks = {
         "redis": redis_healthy,
         "semantic_search": semantic_search_healthy,
         "ai_agents": ai_agents_healthy,
-        "inference_service": inference_healthy,
+        "cloud_providers": providers_healthy,
     }
     
     # WBS 3.3.1.2.3: ai_agents is optional - don't fail readiness if it's down
-    # CRITICAL: inference_service IS critical for local model protocols
-    # Only redis is truly optional
+    # Gateway only checks its own dependencies (cloud providers, semantic-search)
+    # Inference-service health is CMS's responsibility, not the gateway's
     critical_checks = {
         "semantic_search": semantic_search_healthy,
-        "inference_service": inference_healthy,
+        "cloud_providers": providers_healthy,
     }
     critical_healthy = all(critical_checks.values())
     all_healthy = all(checks.values())

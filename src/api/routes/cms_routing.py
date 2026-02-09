@@ -38,16 +38,26 @@ logger = logging.getLogger(__name__)
 # Model Context Limits
 # =============================================================================
 
+# Context limits for registered external models only
+# Local model limits are managed by CMS (models_context.yaml), NOT the gateway
 MODEL_CONTEXT_LIMITS: dict[str, int] = {
-    "qwen3-8b": 8192,
-    "codellama-7b": 16384,
-    "codellama-13b": 16384,
-    "deepseek-coder-v2-lite": 131072,
-    "llama-3.2-3b": 8192,
-    "gpt-4": 8192,
-    "gpt-4-turbo": 128000,
-    "claude-3-sonnet": 200000,
-    "claude-3-opus": 200000,
+    # OpenAI
+    "gpt-5.2": 128000,
+    "gpt-5.2-pro": 128000,
+    "gpt-5-mini": 128000,
+    "gpt-5-nano": 128000,
+    # Anthropic
+    "claude-opus-4.5": 200000,
+    "claude-sonnet-4.5": 200000,
+    "claude-opus-4-5-20250514": 200000,
+    "claude-sonnet-4-5-20250514": 200000,
+    # Google
+    "gemini-2.0-flash": 1048576,
+    "gemini-1.5-pro": 2097152,
+    "gemini-1.5-flash": 1048576,
+    "gemini-pro": 32768,
+    # DeepSeek
+    "deepseek-reasoner": 64000,
 }
 
 DEFAULT_CONTEXT_LIMIT = 8192

@@ -27,13 +27,20 @@ logger = logging.getLogger(__name__)
 
 
 class CMSProcessResult(BaseModel):
-    """Result from CMS /v1/context/process endpoint."""
+    """Result from CMS /v1/context/process endpoint.
     
-    optimized_text: str
+    Field names match the CMS ProcessResponse schema:
+    - final_tokens (not optimized_tokens) — token count after processing
+    - optimized_text is Optional — CMS returns None when chunking
+    """
+    
+    optimized_text: Optional[str] = None
     original_tokens: int
-    optimized_tokens: int
+    final_tokens: int
     compression_ratio: float
+    was_chunked: bool = False
     strategies_applied: list[str] = []
+    processing_time_ms: float = 0.0
     glossary_version: int = 0
     chunks: Optional[list["CMSChunk"]] = None
     fidelity_validated: bool = False

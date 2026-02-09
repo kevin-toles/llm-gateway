@@ -55,17 +55,26 @@ _THINKING_CLOSE_PATTERN = re.compile(
 DEFAULT_CHARS_PER_TOKEN = 4  # Conservative estimate for token counting
 CONTEXT_SAFETY_MARGIN = 0.85  # Use 85% of context limit to leave headroom
 DEFAULT_CONTEXT_LIMITS = {
-    # Local models (conservative for 16GB Mac)
-    "qwen3-8b": 2048,
-    "qwen2.5-7b": 4096,
-    "llama-3.2-3b": 4096,
-    # External models (full context)
-    "gpt-4": 8192,
-    "gpt-4-turbo": 128000,
-    "gpt-4o": 128000,
-    "claude-3-opus": 200000,
-    "claude-3-sonnet": 200000,
-    "claude-3-haiku": 200000,
+    # Registered external models only (gateway manages cloud, CMS manages local)
+    # OpenAI
+    "gpt-5.2": 128000,
+    "gpt-5.2-pro": 128000,
+    "gpt-5-mini": 128000,
+    "gpt-5-nano": 128000,
+    # Anthropic
+    "claude-opus-4.5": 200000,
+    "claude-sonnet-4.5": 200000,
+    "claude-opus-4-5-20250514": 200000,
+    "claude-sonnet-4-5-20250514": 200000,
+    "claude-opus-4-20250514": 200000,
+    "claude-sonnet-4-20250514": 200000,
+    # Google
+    "gemini-2.0-flash": 1048576,
+    "gemini-1.5-pro": 2097152,
+    "gemini-1.5-flash": 1048576,
+    "gemini-pro": 32768,
+    # DeepSeek
+    "deepseek-reasoner": 64000,
 }
 
 
@@ -227,12 +236,18 @@ class ChatService:
         messages = await self._build_messages_with_history(request)
 
         # Proactive context management: check if we're approaching limits
+        # When CMS proxy is enabled, CMS intercepts and handles context window
+        # management — skip gateway-side compression to avoid double-processing.
         context_limit = self._get_context_limit(request.model)
         estimated_tokens = self._estimate_token_count(messages)
         
-        if estimated_tokens > context_limit * CONTEXT_SAFETY_MARGIN:
+        from src.core.config import get_settings
+        _settings = get_settings()
+        cms_proxy_active = getattr(_settings, 'cms_enabled', False) and getattr(_settings, 'cms_url', None)
+        
+        if not cms_proxy_active and estimated_tokens > context_limit * CONTEXT_SAFETY_MARGIN:
             logger.info(
-                "Proactive context management: %d tokens approaching limit %d for %s",
+                "Proactive context management (CMS proxy disabled): %d tokens approaching limit %d for %s",
                 estimated_tokens,
                 context_limit,
                 request.model,
@@ -241,6 +256,12 @@ class ChatService:
                 messages, 
                 context_limit,
                 request.model,
+            )
+        elif cms_proxy_active and estimated_tokens > context_limit * CONTEXT_SAFETY_MARGIN:
+            logger.info(
+                "CMS proxy active — delegating context management for %d tokens (limit %d) to CMS",
+                estimated_tokens,
+                context_limit,
             )
 
         # Create a working request with updated messages
@@ -544,7 +565,7 @@ class ChatService:
         # Try CMS summarization if available
         if _infra_status.cms_available:
             try:
-                compressed = await self._cms_compress_context(messages, target_tokens)
+                compressed = await self._cms_compress_context(messages, target_tokens, model)
                 if compressed:
                     logger.info("Context compressed via CMS: %d -> %d messages",
                                len(messages), len(compressed))
@@ -560,34 +581,93 @@ class ChatService:
         self,
         messages: list[Message],
         target_tokens: int,
+        model: str = "qwen2.5-7b",
     ) -> list[Message] | None:
         """
         Use CMS to intelligently compress context.
         
-        CMS can summarize conversation history while preserving key information.
+        CMS can optimize and chunk text to fit within token limits.
+        Sends concatenated message content to CMS /v1/context/process,
+        which applies token optimization strategies (prose→bullets,
+        constraint handles, abbreviations) and optional chunking.
         
         Args:
             messages: Messages to compress.
             target_tokens: Target token count.
+            model: Model identifier for CMS context limits.
             
         Returns:
             Compressed messages or None if CMS unavailable.
         """
         # Import CMS client (lazy to avoid circular imports)
         try:
-            from src.clients.cms_client import get_cms_client
+            from src.clients.cms_client import get_cms_client, CMSError
             
             cms = get_cms_client()
             if cms is None:
                 return None
             
-            # TODO: Call CMS compression endpoint
-            # For now, return None to use fallback
-            # Future: cms.compress_context(messages, target_tokens)
-            return None
+            # Separate system message from content messages
+            system_msg: Message | None = None
+            content_messages = messages
+            if messages and messages[0].role == "system":
+                system_msg = messages[0]
+                content_messages = messages[1:]
+            
+            if not content_messages:
+                return None
+            
+            # Concatenate user/assistant content for CMS processing
+            combined_text = "\n\n".join(
+                f"[{msg.role}]: {msg.content}" 
+                for msg in content_messages 
+                if msg.content
+            )
+            
+            if not combined_text:
+                return None
+            
+            result = await cms.process(
+                text=combined_text,
+                model=model,
+            )
+            
+            # Build compressed message list
+            compressed: list[Message] = []
+            if system_msg:
+                compressed.append(system_msg)
+            
+            if result.chunks:
+                # CMS chunked the content — use only the last chunk
+                # (most recent context, fits in window)
+                last_chunk = result.chunks[-1]
+                compressed.append(Message(
+                    role="user",
+                    content=last_chunk.content,
+                ))
+            elif result.optimized_text:
+                compressed.append(Message(
+                    role="user",
+                    content=result.optimized_text,
+                ))
+            else:
+                return None
+            
+            logger.info(
+                "CMS compression: %d -> %d tokens (ratio: %.2f, strategies: %s)",
+                result.original_tokens,
+                result.final_tokens,
+                result.compression_ratio,
+                result.strategies_applied,
+            )
+            
+            return compressed
             
         except ImportError:
             logger.debug("CMS client not available")
+            return None
+        except CMSError as e:
+            logger.warning("CMS compression call failed: %s", e)
             return None
     
     def _fallback_compress(
@@ -630,6 +710,24 @@ class ChatService:
                 break
         
         result.extend(messages_to_add)
+        
+        # Floor guard: never return empty list (LangChain trim_messages pattern)
+        # If no messages fit, hard-truncate the last message's content to fit
+        if not result or (len(result) == 1 and result[0].role == "system" and messages):
+            last_msg = messages[-1]
+            available_tokens = max(target_tokens - tokens_used, 100)  # At least 100 tokens
+            max_chars = available_tokens * DEFAULT_CHARS_PER_TOKEN
+            truncated_content = (last_msg.content or "")[:max_chars]
+            if truncated_content:
+                result.append(Message(
+                    role=last_msg.role,
+                    content=truncated_content,
+                ))
+                logger.warning(
+                    "Floor guard: hard-truncated message from %d to %d chars to prevent empty context",
+                    len(last_msg.content or ""),
+                    len(truncated_content),
+                )
         
         if len(result) < len(messages) + (1 if messages and messages[0].role == "system" else 0):
             logger.info(

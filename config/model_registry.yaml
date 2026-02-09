@@ -1,17 +1,21 @@
 # =============================================================================
 # CANONICAL MODEL REGISTRY
 # =============================================================================
-# Categories:
-#   1. LOCAL - inference-service:8085 (DEFAULT for all local models)
-#   2. LOCAL_EXPLICIT - ollama:11434 (requires "ollama/" prefix)
-#   3. EXTERNAL_OWNED - APIs you pay for (OpenAI, Anthropic, Google)
-#   4. EXTERNAL_AGGREGATOR - Pass-through APIs (OpenRouter) - EXPLICIT ONLY
+# This file is THE bouncer list. If a model is not listed under a provider's
+# `models:` key, it CANNOT be contacted. Period.
 #
-# RULES:
-#   - Local models ALWAYS route to inference-service (no cloud fallback)
-#   - External owned APIs auto-route by model name prefix
-#   - Aggregators (OpenRouter, DeepSeek API) require explicit prefix
-#   - Ollama requires "ollama/" prefix (local but explicit)
+# Categories:
+#   1. LOCAL - inference-service:8085 (runs on YOUR hardware)
+#   2. LOCAL_EXPLICIT - ollama:11434 (requires "ollama/" prefix)
+#   3. EXTERNAL_OWNED - APIs you pay for (OpenAI, Anthropic, Google, DeepSeek)
+#   4. EXTERNAL_AGGREGATOR - Pass-through APIs (OpenRouter) - EXPLICIT PREFIX ONLY
+#
+# HOW ROUTING WORKS:
+#   1. Every model listed under providers.*.models is registered → model_name: provider_name
+#   2. Aliases map shorthand names to registered models (e.g. "openai" → "gpt-5.2")
+#   3. Prefixes route aggregator syntax (e.g. "openrouter/mixtral" → openrouter)
+#   4. If the model is NOT registered, NOT an alias, and NOT prefixed → REJECTED
+#   No wildcards. No globs. No fallbacks.
 # =============================================================================
 
 providers:
@@ -85,6 +89,14 @@ providers:
       - gemini-1.5-flash
       - gemini-pro
 
+  deepseek:
+    category: external_owned
+    env_key: DEEPSEEK_API_KEY
+    prefix: "deepseek-api/"
+    models:
+      - deepseek-chat
+      - deepseek-reasoner
+
   # =========================================================================
   # EXTERNAL_AGGREGATOR: Pass-through APIs - EXPLICIT PREFIX REQUIRED
   # These NEVER auto-route. Must use prefix syntax.
@@ -95,83 +107,23 @@ providers:
     prefix: "openrouter/"
     env_key: OPENROUTER_API_KEY
 
-  deepseek_api:
-    category: external_aggregator
-    explicit_only: true
-    prefix: "deepseek-api/"
-    env_key: DEEPSEEK_API_KEY
+# No default — unregistered models are REJECTED (NoProviderError)
+routing_default: null
 
 # =============================================================================
-# ROUTING RULES (processed in order)
+# PROVIDER ALIASES (shortcuts for common provider names)
 # =============================================================================
-routing:
-  # 1. Explicit prefixes (aggregators and ollama) - MUST BE FIRST
-  - pattern: "openrouter/*"
-    provider: openrouter
-  - pattern: "deepseek-api/*"
-    provider: deepseek_api
-  - pattern: "ollama/*"
-    provider: ollama
-
-  # 2. ALL local inference-service models (exact matches)
-  # Primary/General
-  - pattern: "phi-4"
-    provider: inference
-  - pattern: "qwen2.5-7b"
-    provider: inference
-  - pattern: "qwen3-8b"
-    provider: inference
-  - pattern: "llama-3.2-3b"
-    provider: inference
-  - pattern: "gpt-oss-20b"
-    provider: inference
-  # Reasoning
-  - pattern: "deepseek-r1-7b"
-    provider: inference
-  - pattern: "phi-3-medium-128k"
-    provider: inference
-  # Code-Specialized
-  - pattern: "codellama-7b-instruct"
-    provider: inference
-  - pattern: "codellama-13b"
-    provider: inference
-  - pattern: "qwen2.5-coder-7b"
-    provider: inference
-  - pattern: "qwen3-coder-30b"
-    provider: inference
-  - pattern: "starcoder2-7b"
-    provider: inference
-  - pattern: "codegemma-7b"
-    provider: inference
-  - pattern: "deepseek-coder-v2-lite"
-    provider: inference
-  - pattern: "granite-8b-code-128k"
-    provider: inference
-  - pattern: "granite-20b-code"
-    provider: inference
-
-  # 3. External owned APIs (auto-route - you have keys)
-  # Anthropic
-  - pattern: "claude-opus-4.5"
-    provider: anthropic
-  - pattern: "claude-sonnet-4.5"
-    provider: anthropic
-  - pattern: "claude-*"
-    provider: anthropic
+aliases:
   # OpenAI
-  - pattern: "gpt-5.2"
-    provider: openai
-  - pattern: "gpt-5.2-pro"
-    provider: openai
-  - pattern: "gpt-5-mini"
-    provider: openai
-  - pattern: "gpt-5-nano"
-    provider: openai
-  - pattern: "gpt-*"
-    provider: openai
+  openai: gpt-5.2
+  chatgpt: gpt-5.2
+  gpt: gpt-5.2
+  # Anthropic
+  anthropic: claude-opus-4.5
+  claude: claude-opus-4.5
+  # DeepSeek
+  deepseek: deepseek-chat
+  reasoner: deepseek-reasoner
   # Google
-  - pattern: "gemini-*"
-    provider: google
-
-  # 4. Default: inference-service (try local first for unknown models)
-  default: inference
+  google: gemini-1.5-pro
+  gemini: gemini-1.5-pro

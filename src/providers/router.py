@@ -1,12 +1,20 @@
 """Provider Router - Routes requests to appropriate LLM provider.
 
 This module implements the Strategy pattern for provider selection,
-routing requests to the appropriate LLM provider based on model name
-or falling back to a configured default provider.
+routing requests to the appropriate LLM provider based on model name.
+
+All routing data is loaded from config/model_registry.yaml at startup.
+The YAML is the SINGLE source of truth — no hardcoded model dicts.
+
+Reference: Microservices Patterns Ch.27 (API Gateway routing map pattern),
+           MLflow gateway/config.py (YAML-driven provider routing)
 """
 
 import logging
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import yaml
 
 from src.providers.base import LLMProvider
 
@@ -15,9 +23,107 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Constants for duplicate literals
-MODEL_GPT_5_2 = "gpt-5.2"
-MODEL_GEMINI_1_5_PRO = "gemini-1.5-pro"
+# Path to the canonical model registry
+_REGISTRY_PATH = Path(__file__).parent.parent.parent / "config" / "model_registry.yaml"
+
+
+def _load_model_registry(path: Path | None = None) -> dict[str, Any]:
+    """Load the canonical model registry from YAML.
+
+    This is the SINGLE source of truth for model→provider routing.
+    No hardcoded dicts — everything comes from this file.
+
+    Pattern: MLflow _load_gateway_config() — YAML → Pydantic validation.
+    Anti-pattern avoided: Dual source of truth (PLATFORM_CONSOLIDATED_ISSUES C-9).
+
+    Args:
+        path: Override path for testing. Defaults to config/model_registry.yaml.
+
+    Returns:
+        Parsed registry dict.
+
+    Raises:
+        FileNotFoundError: If registry YAML doesn't exist.
+        yaml.YAMLError: If YAML is malformed.
+    """
+    registry_path = path or _REGISTRY_PATH
+    if not registry_path.exists():
+        raise FileNotFoundError(
+            f"Model registry not found: {registry_path}. "
+            "Cannot start gateway without a model registry."
+        )
+    with open(registry_path) as f:
+        config = yaml.safe_load(f)
+    logger.info("Loaded model registry from %s", registry_path)
+    return config
+
+
+def _build_registered_models(config: dict[str, Any]) -> dict[str, str]:
+    """Build the COMPLETE model→provider allowlist from registry YAML.
+
+    Reads EVERY provider's `models:` list and maps each model to its
+    provider name. This is THE bouncer list — if a model isn't here,
+    it cannot be contacted. Period.
+
+    Pattern: MLflow gateway/app.py — `if name in self.dynamic_endpoints`
+    Pattern: Terraform provider_validation.go — `if _, exists := m[key]`
+    Pattern: Kubernetes Gatekeeper — explicit constraint list
+
+    Args:
+        config: Parsed model_registry.yaml.
+
+    Returns:
+        Dict mapping model name → provider name (ALL providers, ALL models).
+    """
+    registered: dict[str, str] = {}
+    providers = config.get("providers", {})
+    for provider_name, provider_config in providers.items():
+        for model in provider_config.get("models", []):
+            registered[model] = provider_name
+    logger.info(
+        "Registered %d models from YAML: %s",
+        len(registered),
+        {v: sum(1 for m in registered if registered[m] == v) for v in set(registered.values())},
+    )
+    return registered
+
+
+def _build_prefix_map(config: dict[str, Any]) -> dict[str, str]:
+    """Build prefix→provider map from registry YAML.
+
+    Reads ANY provider that has a `prefix` field and maps it
+    to that provider name.
+
+    Args:
+        config: Parsed model_registry.yaml.
+
+    Returns:
+        Dict mapping prefix (e.g. "openrouter/") → provider name.
+    """
+    prefix_map: dict[str, str] = {}
+    providers = config.get("providers", {})
+    for provider_name, provider_config in providers.items():
+        prefix = provider_config.get("prefix", "")
+        if prefix:
+            prefix_map[prefix] = provider_name
+    logger.info("Built MODEL_PREFIXES from YAML: %s", prefix_map)
+    return prefix_map
+
+
+def _build_aliases(config: dict[str, Any]) -> dict[str, str]:
+    """Build alias→model map from registry YAML.
+
+    Aliases are shorthand names like "openai" → "gpt-5.2".
+
+    Args:
+        config: Parsed model_registry.yaml.
+
+    Returns:
+        Dict mapping alias → default model name.
+    """
+    aliases = config.get("aliases", {})
+    logger.info("Built %d provider aliases from YAML", len(aliases))
+    return aliases
 
 
 class NoProviderError(Exception):
@@ -29,120 +135,55 @@ class NoProviderError(Exception):
 class ProviderRouter:
     """Routes requests to appropriate LLM provider based on model name.
 
-    The router maintains a registry of providers and routes requests
-    based on model name prefixes. If no matching provider is found,
-    it falls back to the configured default provider.
+    Bouncer pattern: if you're not on the list, you're not getting in.
 
-    Attributes:
-        providers: Dictionary mapping provider names to provider instances.
-        default_provider: Name of the default provider to use as fallback.
+    All routing data is loaded from config/model_registry.yaml.
+    Every provider lists its models. That list IS the registry.
+    If a model isn't in a provider's `models:` list, it cannot be contacted.
 
-    Example:
-        >>> router = ProviderRouter(
-        ...     providers={"anthropic": anthropic_provider, "openai": openai_provider},
-        ...     default_provider="anthropic"
-        ... )
-        >>> provider = router.get_provider("claude-3-5-sonnet-20241022")
-        >>> # Returns anthropic_provider
+    Routing: alias → prefix → dict lookup → reject.
+    No wildcards. No globs. No fallbacks.
+
+    Reference: MLflow gateway/app.py — `if name in self.dynamic_endpoints`
+    Reference: Terraform provider_validation.go — `if _, exists := m[key]`
+    Reference: Microservices Patterns Ch.27 — "consults a routing map"
     """
-
-    # ==========================================================================
-    # MODEL ROUTING TABLE
-    # ==========================================================================
-    # Categories:
-    #   1. LOCAL (inference-service) - Default for all local GGUF models
-    #   2. EXTERNAL_OWNED - Your API keys (OpenAI, Anthropic, Google)
-    #   3. EXTERNAL_AGGREGATOR - Explicit prefix only (openrouter/, ollama/)
-    #
-    # RULE: OpenRouter is NEVER auto-routed. Must use "openrouter/" prefix.
-    # RULE: Ollama requires "ollama/" prefix.
-    # ==========================================================================
-    
-    # Exact model matches for local inference-service (checked first)
-    LOCAL_MODELS = {
-        # Primary/General
-        "phi-4", "qwen2.5-7b", "qwen3-8b", "llama-3.2-3b", "gpt-oss-20b",
-        # Reasoning
-        "deepseek-r1-7b", "phi-3-medium-128k",
-        # Code-Specialized
-        "codellama-7b-instruct", "codellama-13b", "qwen2.5-coder-7b",
-        "qwen3-coder-30b", "starcoder2-7b", "codegemma-7b",
-        "deepseek-coder-v2-lite", "granite-8b-code-128k", "granite-20b-code",
-    }
-    
-    # Exact model matches for external owned APIs
-    EXTERNAL_MODELS = {
-        # Anthropic (your API key) - support both naming conventions
-        "claude-opus-4.5": "anthropic",
-        "claude-sonnet-4.5": "anthropic",
-        "claude-opus-4-5-20250514": "anthropic",    # User's preferred ID
-        "claude-sonnet-4-5-20250514": "anthropic",  # User's preferred ID
-        "claude-opus-4-20250514": "anthropic",     # Official Anthropic ID
-        "claude-sonnet-4-20250514": "anthropic",   # Official Anthropic ID
-        # OpenAI (your API key)
-        MODEL_GPT_5_2: "openai",
-        "gpt-5.2-pro": "openai",
-        "gpt-5-mini": "openai",
-        "gpt-5-nano": "openai",
-        # Google (your API key)
-        "gemini-2.0-flash": "google",
-        MODEL_GEMINI_1_5_PRO: "google",
-        "gemini-1.5-flash": "google",
-        "gemini-pro": "google",
-        # DeepSeek (your API key) - direct model access
-        "deepseek-reasoner": "deepseek",
-    }
-    
-    # Prefix routing for cloud providers (fallback after exact match)
-    MODEL_PREFIXES = {
-        # External owned - auto-route by prefix
-        "claude-": "anthropic",
-        "gpt-": "openai",
-        "gemini-": "google",
-        "deepseek-": "deepseek",  # Added for consistency with other cloud providers
-        
-        # External aggregators - EXPLICIT PREFIX REQUIRED
-        "openrouter/": "openrouter",  # Must use: openrouter/model-name
-        "ollama/": "ollama",          # Must use: ollama/model-name
-        "deepseek-api/": "deepseek",  # Legacy: deepseek-api/model-name
-        
-        # Legacy support
-        "local/": "llamacpp",
-        "llamacpp:": "llamacpp",
-        "gguf/": "llamacpp",
-    }
-    
-    # Fallback defaults - when user requests just a provider/alias name
-    # Maps shorthand names to the recommended default model
-    PROVIDER_DEFAULTS = {
-        # OpenAI shortcuts
-        "openai": MODEL_GPT_5_2,
-        "chatgpt": MODEL_GPT_5_2,
-        "gpt": MODEL_GPT_5_2,
-        # Anthropic shortcuts - use the -5- format users expect
-        "anthropic": "claude-opus-4-5-20250514",
-        "claude": "claude-opus-4-5-20250514",
-        # DeepSeek shortcuts
-        "deepseek": "deepseek-api/deepseek-reasoner",
-        "reasoner": "deepseek-api/deepseek-reasoner",
-        # Google shortcuts
-        "google": MODEL_GEMINI_1_5_PRO,
-        "gemini": MODEL_GEMINI_1_5_PRO,
-    }
 
     def __init__(
         self,
         providers: dict[str, LLMProvider] | None = None,
         default_provider: str | None = None,
+        registry_path: Path | None = None,
     ) -> None:
         """Initialize the provider router.
 
+        Loads routing tables from config/model_registry.yaml.
+
         Args:
             providers: Dictionary mapping provider names to provider instances.
-            default_provider: Name of the default provider to use as fallback.
+            default_provider: Name of the default provider (used ONLY if
+                              registry YAML specifies a non-null default).
+            registry_path: Override path for testing.
         """
         self._providers: dict[str, LLMProvider] = providers or {}
         self._default_provider = default_provider
+
+        # Load routing data from YAML — the SINGLE source of truth
+        try:
+            config = _load_model_registry(registry_path)
+        except FileNotFoundError:
+            logger.warning("Model registry YAML not found, using empty routing tables")
+            config = {"providers": {}, "routing": [], "aliases": {}}
+
+        self.REGISTERED_MODELS = _build_registered_models(config)
+        self.MODEL_PREFIXES = _build_prefix_map(config)
+        self.PROVIDER_DEFAULTS = _build_aliases(config)
+
+        # Respect YAML routing_default setting — null means NO default (reject unknown)
+        yaml_default = config.get("routing_default")
+        if yaml_default is None:
+            # YAML says null → no silent fallback
+            self._default_provider = None
 
     @property
     def providers(self) -> dict[str, LLMProvider]:
@@ -157,102 +198,45 @@ class ProviderRouter:
     def get_provider(self, model: str) -> LLMProvider:
         """Get the appropriate provider for the given model.
 
+        Like a bouncer at a club: if you're not on the list, you're not getting in.
+
         Routing Priority:
-        0. Provider alias defaults (openai, chatgpt, claude, etc.)
-        1. Explicit prefix (openrouter/, ollama/) - strips prefix
-        2. Exact match in LOCAL_MODELS -> inference provider
-        3. Exact match in EXTERNAL_MODELS -> specific provider
-        4. Prefix match in MODEL_PREFIXES -> specific provider
-        5. Default provider (inference-service)
+        1. Alias resolution (e.g. "openai" → "gpt-5.2" → re-lookup)
+        2. Explicit prefix (e.g. "openrouter/model" → openrouter provider)
+        3. Registered model lookup (THE list — built from all providers' models)
+        4. REJECT — raise NoProviderError
+
+        Pattern: MLflow gateway/app.py — if name in endpoints → route, else reject
+        Pattern: Terraform — if _, exists := m[key]; exists → use, else skip
         """
         if not self._providers:
             raise NoProviderError("No providers registered")
 
         model_lower = model.lower()
-        
-        # Try each routing strategy in order
-        provider = self._route_by_alias(model, model_lower)
-        if provider:
-            return provider
-            
-        provider = self._route_by_explicit_prefix(model, model_lower)
-        if provider:
-            return provider
-            
-        provider = self._route_by_local_model(model, model_lower)
-        if provider:
-            return provider
-            
-        provider = self._route_by_external_model(model)
-        if provider:
-            return provider
-            
-        provider = self._route_by_prefix_match(model, model_lower)
-        if provider:
-            return provider
-            
-        provider = self._route_to_default(model)
-        if provider:
-            return provider
 
-        raise NoProviderError(f"No provider found for model: {model}")
+        # 1. Alias? (e.g. "openai" → "gpt-5.2", then re-lookup)
+        if model_lower in self.PROVIDER_DEFAULTS:
+            actual_model = self.PROVIDER_DEFAULTS[model_lower]
+            logger.info(f"Alias '{model}' -> '{actual_model}'")
+            return self.get_provider(actual_model)
 
-    def _route_by_alias(self, model: str, model_lower: str) -> LLMProvider | None:
-        """Route by provider alias (e.g., 'openai' -> 'gpt-5.2')."""
-        if model_lower not in self.PROVIDER_DEFAULTS:
-            return None
-        actual_model = self.PROVIDER_DEFAULTS[model_lower]
-        logger.info(f"Alias '{model}' -> default model '{actual_model}'")
-        return self.get_provider(actual_model)
-
-    def _route_by_explicit_prefix(self, model: str, model_lower: str) -> LLMProvider | None:
-        """Route by explicit aggregator prefix (openrouter/, ollama/, deepseek-api/)."""
-        explicit_prefixes = ["openrouter/", "ollama/", "deepseek-api/"]
-        for prefix in explicit_prefixes:
-            if not model_lower.startswith(prefix):
-                continue
-            provider_name = self.MODEL_PREFIXES.get(prefix)
-            if provider_name and provider_name in self._providers:
-                logger.info(f"Routing {model} to {provider_name} (explicit prefix)")
-                return self._providers[provider_name]
-        return None
-
-    def _route_by_local_model(self, model: str, model_lower: str) -> LLMProvider | None:
-        """Route local models to inference-service."""
-        if model_lower not in self.LOCAL_MODELS and model not in self.LOCAL_MODELS:
-            return None
-        if "inference" in self._providers:
-            logger.info(f"Routing {model} to inference-service (local model)")
-            return self._providers["inference"]
-        return None
-
-    def _route_by_external_model(self, model: str) -> LLMProvider | None:
-        """Route external models to their specific provider."""
-        if model not in self.EXTERNAL_MODELS:
-            return None
-        provider_name = self.EXTERNAL_MODELS[model]
-        if provider_name in self._providers:
-            logger.info(f"Routing {model} to {provider_name} (external owned)")
-            return self._providers[provider_name]
-        return None
-
-    def _route_by_prefix_match(self, model: str, model_lower: str) -> LLMProvider | None:
-        """Route by prefix match (claude-, gpt-, gemini-)."""
+        # 2. Explicit prefix? (e.g. "openrouter/mixtral" → openrouter)
         for prefix, provider_name in self.MODEL_PREFIXES.items():
             if model_lower.startswith(prefix) and provider_name in self._providers:
-                logger.info(f"Routing {model} to {provider_name} (prefix match)")
+                logger.info(f"Routing {model} to {provider_name} (prefix '{prefix}')")
                 return self._providers[provider_name]
-        return None
 
-    def _route_to_default(self, model: str) -> LLMProvider | None:
-        """Route to default provider (inference-service or configured default)."""
-        if "inference" in self._providers:
-            logger.warning(f"Unknown model {model}, defaulting to inference-service")
-            return self._providers["inference"]
-        if self._default_provider and self._default_provider in self._providers:
-            logger.warning(f"Unknown model {model}, using default: {self._default_provider}")
-            return self._providers[self._default_provider]
-        return None
+        # 3. On the list? (exact match in REGISTERED_MODELS)
+        provider_name = self.REGISTERED_MODELS.get(model) or self.REGISTERED_MODELS.get(model_lower)
+        if provider_name and provider_name in self._providers:
+            logger.info(f"Routing {model} to {provider_name} (registered)")
+            return self._providers[provider_name]
+
+        # 4. Not on the list = not getting in
+        raise NoProviderError(
+            f"Model '{model}' is not registered in model_registry.yaml. "
+            f"Only registered models can be contacted."
+        )
 
     def resolve_model_alias(self, model: str) -> str:
         """Resolve a model alias to the actual model name.
@@ -275,26 +259,33 @@ class ProviderRouter:
         return model
 
     def list_available_models(self) -> list[str]:
-        """List all available models from all registered providers.
+        """List all registered models.
+
+        Returns models from the REGISTERED_MODELS registry
+        whose providers are actually loaded.
 
         Returns:
-            List of model names from all providers.
+            List of registered model names.
         """
-        models: list[str] = []
-        for provider_name, provider in self._providers.items():
-            models.extend(provider.get_supported_models())
-        return models
+        return [
+            model for model, provider in self.REGISTERED_MODELS.items()
+            if provider in self._providers
+        ]
 
     def list_available_models_by_provider(self) -> dict[str, list[str]]:
-        """List available models grouped by provider.
+        """List registered models grouped by provider.
+
+        Returns models from the REGISTERED_MODELS registry, filtered
+        to providers that are actually loaded.
 
         Returns:
-            Dictionary mapping provider names to their model lists.
+            Dictionary mapping provider names to their registered model lists.
         """
-        return {
-            provider_name: provider.get_supported_models()
-            for provider_name, provider in self._providers.items()
-        }
+        result: dict[str, list[str]] = {}
+        for model_name, provider_name in self.REGISTERED_MODELS.items():
+            if provider_name in self._providers:
+                result.setdefault(provider_name, []).append(model_name)
+        return result
 
     def register_provider(self, name: str, provider: LLMProvider) -> None:
         """Register a new provider.
@@ -326,13 +317,23 @@ def _register_inference(settings: "Settings", providers: dict[str, LLMProvider])
     """Register Inference Service provider for local models.
     
     This is the PRIMARY provider for local LLMs (qwen2.5-7b, deepseek-r1-7b, phi-4).
-    Routes to inference-service:8085 running on the local machine.
+    
+    When CMS is enabled, requests route through CMS proxy which intercepts,
+    checks context windows, and forwards to inference-service.
+    When CMS is disabled, routes directly to inference-service:8085.
     """
     inference_url = getattr(settings, 'inference_service_url', 'http://localhost:8085')
+    cms_url = getattr(settings, 'cms_url', None)
+    cms_enabled = getattr(settings, 'cms_enabled', False)
     try:
         from src.providers.inference import InferenceServiceProvider
-        providers["inference"] = InferenceServiceProvider(base_url=inference_url)
-        logger.info(f"Inference provider registered (url={inference_url})")
+        providers["inference"] = InferenceServiceProvider(
+            base_url=inference_url,
+            cms_url=cms_url,
+            cms_enabled=cms_enabled,
+        )
+        mode = "via CMS proxy" if cms_enabled and cms_url else "direct"
+        logger.info(f"Inference provider registered ({mode}, inference={inference_url})")
     except Exception as e:
         logger.warning(f"Could not initialize Inference provider: {e}")
 
@@ -440,13 +441,17 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
     Factory function that instantiates providers based on available
     API keys in settings and creates a router with them.
 
-    Provider Routing:
-    - inference: LOCAL models (qwen2.5-7b, deepseek-r1-7b, phi-4) → inference-service:8085
+    Provider Routing (EXTERNAL ONLY):
     - openai: GPT models → OpenAI API
     - anthropic: Claude models → Anthropic API  
-    - deepseek: DeepSeek cloud API (deepseek-chat, deepseek-reasoner)
+    - deepseek: DeepSeek cloud API (deepseek-reasoner)
     - gemini: Google Gemini → Google AI API
     - openrouter: ONLY when explicitly requested with 'openrouter/' prefix
+
+    Service Boundary:
+    - Local models (inference-service) are NOT registered in the gateway.
+    - Local model requests should go to CMS /v1/proxy/chat/completions.
+    - See config/model_registry.yaml for the canonical model registry.
 
     Args:
         settings: Application settings containing API keys and defaults.
@@ -456,8 +461,10 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
     """
     providers: dict[str, LLMProvider] = {}
 
-    # Register inference provider FIRST - this is the default for local models
-    _register_inference(settings, providers)
+    # NOTE: Inference provider is NOT registered in the gateway.
+    # Local models are managed by CMS (Context Management Service).
+    # Gateway only handles external/cloud model routing.
+    # See: config/model_registry.yaml for the canonical model registry.
     
     # Cloud providers
     _register_openai(settings, providers)

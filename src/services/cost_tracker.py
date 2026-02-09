@@ -67,43 +67,72 @@ class UsageSummary(BaseModel):
 
 
 DEFAULT_PRICING: dict[str, dict[str, Decimal]] = {
-    # Claude models
-    "claude-3-opus-20240229": {
+    # ==========================================================================
+    # Registered Models (config/model_registry.yaml)
+    # ==========================================================================
+    # Anthropic (Claude 4.5 series)
+    "claude-opus-4.5": {
         "input": Decimal("15.00"),
         "output": Decimal("75.00"),
     },
-    "claude-3-sonnet-20240229": {
+    "claude-sonnet-4.5": {
         "input": Decimal("3.00"),
         "output": Decimal("15.00"),
     },
-    "claude-3-5-sonnet-20241022": {
+    "claude-opus-4-5-20250514": {
+        "input": Decimal("15.00"),
+        "output": Decimal("75.00"),
+    },
+    "claude-sonnet-4-5-20250514": {
         "input": Decimal("3.00"),
         "output": Decimal("15.00"),
     },
-    "claude-3-haiku-20240307": {
-        "input": Decimal("0.25"),
-        "output": Decimal("1.25"),
+    "claude-opus-4-20250514": {
+        "input": Decimal("15.00"),
+        "output": Decimal("75.00"),
     },
-    # GPT models
-    "gpt-4": {
-        "input": Decimal("30.00"),
-        "output": Decimal("60.00"),
+    "claude-sonnet-4-20250514": {
+        "input": Decimal("3.00"),
+        "output": Decimal("15.00"),
     },
-    "gpt-4-turbo": {
-        "input": Decimal("10.00"),
-        "output": Decimal("30.00"),
-    },
-    "gpt-4o": {
+    # OpenAI (GPT-5 series)
+    "gpt-5.2": {
         "input": Decimal("2.50"),
         "output": Decimal("10.00"),
     },
-    "gpt-4o-mini": {
+    "gpt-5.2-pro": {
+        "input": Decimal("10.00"),
+        "output": Decimal("30.00"),
+    },
+    "gpt-5-mini": {
         "input": Decimal("0.15"),
         "output": Decimal("0.60"),
     },
-    "gpt-3.5-turbo": {
+    "gpt-5-nano": {
+        "input": Decimal("0.08"),
+        "output": Decimal("0.30"),
+    },
+    # Google (Gemini series)
+    "gemini-2.0-flash": {
+        "input": Decimal("0.10"),
+        "output": Decimal("0.40"),
+    },
+    "gemini-1.5-pro": {
+        "input": Decimal("1.25"),
+        "output": Decimal("5.00"),
+    },
+    "gemini-1.5-flash": {
+        "input": Decimal("0.075"),
+        "output": Decimal("0.30"),
+    },
+    "gemini-pro": {
         "input": Decimal("0.50"),
         "output": Decimal("1.50"),
+    },
+    # DeepSeek
+    "deepseek-reasoner": {
+        "input": Decimal("0.55"),
+        "output": Decimal("2.19"),
     },
     # Ollama models (free/local)
     "llama2": {

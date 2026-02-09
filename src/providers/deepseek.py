@@ -46,6 +46,8 @@ PROVIDER_NAME = "deepseek"
 DEEPSEEK_API_PREFIX = "deepseek-api/"
 
 SUPPORTED_MODELS = [
+    # Chat model - general purpose, structured output
+    "deepseek-chat",
     # Reasoner model - best for complex reasoning tasks
     "deepseek-reasoner",
 ]

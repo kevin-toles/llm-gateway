@@ -61,7 +61,7 @@ from src.api.routes.cms_routing import (
 logger = logging.getLogger(__name__)
 
 # Environment configuration
-DEFAULT_MODEL = os.getenv("LLM_GATEWAY_DEFAULT_MODEL", "gpt-4")
+DEFAULT_MODEL = os.getenv("LLM_GATEWAY_DEFAULT_MODEL", "gpt-5.2")
 
 
 # =============================================================================
