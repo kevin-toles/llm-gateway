@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Context limits for registered external models only
-# Local model limits are managed by CMS (models_context.yaml), NOT the gateway
+# Local model limits are managed by CMS (models_context_fallback.yaml), NOT the gateway
 MODEL_CONTEXT_LIMITS: dict[str, int] = {
     # OpenAI
     "gpt-5.2": 128000,
