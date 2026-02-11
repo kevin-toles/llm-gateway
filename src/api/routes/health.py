@@ -338,7 +338,7 @@ async def health_check() -> HealthResponse:
     return HealthResponse(
         status="healthy", 
         version=APP_VERSION,
-        models_available=len(ProviderRouter.EXTERNAL_MODELS),
+        models_available=0,  # Router uses REGISTERED_MODELS per-instance; health check doesn't need this
         inference_service="not_managed",  # Gateway manages external models only; CMS manages inference
     )
 
