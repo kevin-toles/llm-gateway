@@ -1,0 +1,129 @@
+# =============================================================================
+# CANONICAL MODEL REGISTRY
+# =============================================================================
+# This file is THE bouncer list. If a model is not listed under a provider's
+# `models:` key, it CANNOT be contacted. Period.
+#
+# Categories:
+#   1. LOCAL - inference-service:8085 (runs on YOUR hardware)
+#   2. LOCAL_EXPLICIT - ollama:11434 (requires "ollama/" prefix)
+#   3. EXTERNAL_OWNED - APIs you pay for (OpenAI, Anthropic, Google, DeepSeek)
+#   4. EXTERNAL_AGGREGATOR - Pass-through APIs (OpenRouter) - EXPLICIT PREFIX ONLY
+#
+# HOW ROUTING WORKS:
+#   1. Every model listed under providers.*.models is registered → model_name: provider_name
+#   2. Aliases map shorthand names to registered models (e.g. "openai" → "gpt-5.2")
+#   3. Prefixes route aggregator syntax (e.g. "openrouter/mixtral" → openrouter)
+#   4. If the model is NOT registered, NOT an alias, and NOT prefixed → REJECTED
+#   No wildcards. No globs. No fallbacks.
+# =============================================================================
+
+providers:
+  # =========================================================================
+  # LOCAL: inference-service:8085 (llama-cpp-python + Metal GPU)
+  # DEFAULT for all local LLM requests - runs on YOUR hardware
+  # =========================================================================
+  inference:
+    category: local
+    url: "${INFERENCE_SERVICE_URL:-http://host.docker.internal:8085}"
+    models:
+      # Primary/General Purpose
+      - phi-4
+      - qwen2.5-7b
+      - qwen3-8b
+      - llama-3.2-3b
+      - gpt-oss-20b
+      
+      # Reasoning/Thinker
+      - deepseek-r1-7b
+      - phi-3-medium-128k
+      
+      # Code-Specialized
+      - codellama-7b-instruct
+      - codellama-13b
+      - qwen2.5-coder-7b
+      - qwen3-coder-30b
+      - starcoder2-7b
+      - codegemma-7b
+      - deepseek-coder-v2-lite
+      - granite-8b-code-128k
+      - granite-20b-code
+
+  # =========================================================================
+  # LOCAL_EXPLICIT: ollama:11434 (requires "ollama/" prefix)
+  # Must explicitly request: "ollama/mistral:7b"
+  # =========================================================================
+  ollama:
+    category: local_explicit
+    explicit_only: true
+    prefix: "ollama/"
+    url: "${OLLAMA_URL:-http://host.docker.internal:11434}"
+    # Models pulled via `ollama pull <model>`
+    # User must request: "ollama/mistral:7b", "ollama/llama3.2:3b", etc.
+
+  # =========================================================================
+  # EXTERNAL_OWNED: APIs you have keys for (auto-route by model name)
+  # =========================================================================
+  anthropic:
+    category: external_owned
+    env_key: ANTHROPIC_API_KEY
+    models:
+      - claude-opus-4.5
+      - claude-sonnet-4.5
+
+  openai:
+    category: external_owned
+    env_key: OPENAI_API_KEY
+    models:
+      - gpt-5.2
+      - gpt-5.2-pro
+      - gpt-5-mini
+      - gpt-5-nano
+
+  google:
+    category: external_owned
+    env_key: GOOGLE_API_KEY
+    models:
+      - gemini-2.0-flash
+      - gemini-1.5-pro
+      - gemini-1.5-flash
+      - gemini-pro
+
+  deepseek:
+    category: external_owned
+    env_key: DEEPSEEK_API_KEY
+    prefix: "deepseek-api/"
+    models:
+      - deepseek-chat
+      - deepseek-reasoner
+
+  # =========================================================================
+  # EXTERNAL_AGGREGATOR: Pass-through APIs - EXPLICIT PREFIX REQUIRED
+  # These NEVER auto-route. Must use prefix syntax.
+  # =========================================================================
+  openrouter:
+    category: external_aggregator
+    explicit_only: true
+    prefix: "openrouter/"
+    env_key: OPENROUTER_API_KEY
+
+# No default — unregistered models are REJECTED (NoProviderError)
+routing_default: null
+
+# =============================================================================
+# PROVIDER ALIASES (shortcuts for common provider names)
+# =============================================================================
+aliases:
+  # OpenAI
+  openai: gpt-5.2
+  chatgpt: gpt-5.2
+  gpt: gpt-5.2
+  # Anthropic
+  anthropic: claude-opus-4.5
+  claude: claude-opus-4.5
+  # DeepSeek
+  deepseek: deepseek-chat
+  reasoner: deepseek-reasoner
+  # Google
+  google: gemini-1.5-pro
+  gemini: gemini-1.5-pro

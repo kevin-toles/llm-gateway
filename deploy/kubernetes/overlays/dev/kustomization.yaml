@@ -1,0 +1,97 @@
+# =============================================================================
+# LLM Gateway - Development Overlay
+# =============================================================================
+# Development environment customizations:
+# - Single replica for cost savings
+# - Debug logging enabled
+# - Relaxed resource limits
+# - Local development image tag
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# =============================================================================
+# Base Reference
+# =============================================================================
+resources:
+  - ../../base
+
+# =============================================================================
+# Namespace Override
+# =============================================================================
+namespace: llm-services
+
+# =============================================================================
+# Name Suffix (optional - for multi-env in same cluster)
+# =============================================================================
+# nameSuffix: -dev
+
+# =============================================================================
+# Common Labels for Dev
+# =============================================================================
+commonLabels:
+  environment: development
+
+# =============================================================================
+# Images - Development Tag
+# =============================================================================
+images:
+  - name: llm-gateway
+    newName: llm-gateway
+    newTag: dev
+
+# =============================================================================
+# Patches - Development Overrides
+# =============================================================================
+patches:
+  # ---------------------------------------------------------------------------
+  # Deployment Patches
+  # ---------------------------------------------------------------------------
+  - target:
+      kind: Deployment
+      name: llm-gateway
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+  
+  # ---------------------------------------------------------------------------
+  # HPA Patches - Lower thresholds for dev
+  # ---------------------------------------------------------------------------
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: llm-gateway
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+
+  # ---------------------------------------------------------------------------
+  # ConfigMap Patches - Dev environment settings
+  # ---------------------------------------------------------------------------
+  - target:
+      kind: ConfigMap
+      name: llm-gateway-config
+    patch: |-
+      - op: replace
+        path: /data/LLM_GATEWAY_ENV
+        value: "development"
+      - op: replace
+        path: /data/LLM_GATEWAY_LOG_LEVEL
+        value: "DEBUG"
+      - op: replace
+        path: /data/LLM_GATEWAY_WORKERS
+        value: "1"

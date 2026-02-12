@@ -1,0 +1,39 @@
+# =============================================================================
+# LLM Gateway PodDisruptionBudget
+# =============================================================================
+# Ensures high availability during voluntary disruptions such as:
+# - Node drains for maintenance
+# - Cluster upgrades
+# - Deployment rollouts
+#
+# This PDB guarantees at least 1 pod is always available.
+# =============================================================================
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: llm-gateway
+  namespace: llm-services
+  labels:
+    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: llm-document-enhancement
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # ===========================================================================
+  # Availability Guarantee
+  # ===========================================================================
+  # Ensure at least 1 pod is always available during disruptions
+  minAvailable: 1
+  
+  # Alternative: Use maxUnavailable instead
+  # maxUnavailable: 1
+  
+  # ===========================================================================
+  # Selector
+  # ===========================================================================
+  # Must match the labels in the Deployment pod template
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: llm-gateway
+      app.kubernetes.io/component: gateway

@@ -1,0 +1,111 @@
+# =============================================================================
+# LLM Gateway - Staging Environment Values
+# =============================================================================
+# Usage:
+#   helm install llm-gateway ./deploy/helm/llm-gateway -f values-staging.yaml
+#
+# Issue 33 Fix (Comp_Static_Analysis_Report_20251203.md):
+# Before deploying to staging, update the following placeholders:
+#   1. ingress.hosts[0].host - Replace llm-gateway.staging.example.com with actual domain
+#   2. ingress.tls[0].hosts[0] - Replace with actual staging domain
+#   3. secrets.externalSecrets.remoteRefs - Update AWS Secrets Manager paths
+#
+# Example for custom domain:
+#   helm install llm-gateway ./deploy/helm/llm-gateway -f values-staging.yaml \
+#     --set ingress.hosts[0].host=llm-gateway.staging.mycompany.com \
+#     --set ingress.tls[0].hosts[0]=llm-gateway.staging.mycompany.com
+# =============================================================================
+
+# Production-like replicas for staging
+replicaCount: 2
+
+# Staging image tag
+image:
+  tag: "staging"
+
+# Moderate resources for staging
+resources:
+  requests:
+    cpu: "200m"
+    memory: "512Mi"
+  limits:
+    cpu: "1000m"
+    memory: "2Gi"
+
+# Moderate autoscaling for staging
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Enable PDB for staging
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Staging application config
+config:
+  environment: "staging"
+  logLevel: "INFO"
+  workers: 2
+  rateLimitRequestsPerMinute: 120
+  rateLimitTokensPerMinute: 200000
+
+# Staging secrets (external secrets recommended)
+secrets:
+  create: false
+  existingSecret: "llm-gateway-secrets"
+  externalSecrets:
+    enabled: true
+    secretStoreRef:
+      name: "aws-secrets-manager"
+      kind: "ClusterSecretStore"
+    remoteRefs:
+      anthropicApiKey: "staging/llm-gateway/anthropic-api-key"
+      openaiApiKey: "staging/llm-gateway/openai-api-key"
+
+# Enable network policies for staging
+networkPolicy:
+  enabled: true
+  ingress:
+    allowIngressController: true
+    ingressControllerNamespace: "ingress-nginx"
+    allowMonitoring: true
+    monitoringNamespace: "monitoring"
+
+# Staging Redis with persistence
+redis:
+  enabled: true
+  architecture: standalone
+  master:
+    persistence:
+      enabled: true
+      size: 2Gi
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+# Staging ingress with domain
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    cert-manager.io/cluster-issuer: "letsencrypt-staging"
+  hosts:
+    - host: llm-gateway.staging.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: llm-gateway-staging-tls
+      hosts:
+        - llm-gateway.staging.example.com

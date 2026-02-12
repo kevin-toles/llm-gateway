@@ -1,0 +1,46 @@
+{{/* ==========================================================================
+LLM Gateway - ConfigMap Template
+==========================================================================
+Creates a ConfigMap containing non-sensitive configuration values.
+Environment variables are injected into pods from this ConfigMap.
+========================================================================== */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "llm-gateway.fullname" . }}-config
+  namespace: {{ include "llm-gateway.namespace" . }}
+  labels:
+    {{- include "llm-gateway.labels" . | nindent 4 }}
+data:
+  # Environment configuration
+  ENVIRONMENT: {{ .Values.config.environment | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  WORKERS: {{ .Values.config.workers | quote }}
+  
+  # LLM Provider configuration
+  DEFAULT_PROVIDER: {{ .Values.config.defaultProvider | quote }}
+  DEFAULT_MODEL: {{ .Values.config.defaultModel | quote }}
+  
+  # Rate limiting configuration
+  RATE_LIMIT_REQUESTS_PER_MINUTE: {{ .Values.config.rateLimitRequestsPerMinute | quote }}
+  RATE_LIMIT_TOKENS_PER_MINUTE: {{ .Values.config.rateLimitTokensPerMinute | quote }}
+  
+  # Session configuration
+  SESSION_TTL_SECONDS: {{ .Values.config.sessionTtlSeconds | quote }}
+  MAX_CONTEXT_LENGTH: {{ .Values.config.maxContextLength | quote }}
+  
+  # Service URLs (optional overrides)
+  {{- if .Values.config.semanticSearchUrl }}
+  SEMANTIC_SEARCH_URL: {{ .Values.config.semanticSearchUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.aiAgentsUrl }}
+  AI_AGENTS_URL: {{ .Values.config.aiAgentsUrl | quote }}
+  {{- end }}
+  {{- if .Values.config.ollamaBaseUrl }}
+  OLLAMA_BASE_URL: {{ .Values.config.ollamaBaseUrl | quote }}
+  {{- end }}
+  
+  # Additional configuration
+  {{- range $key, $value := .Values.config.extra }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
