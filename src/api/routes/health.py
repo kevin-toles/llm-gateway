@@ -268,7 +268,7 @@ class HealthService:
             logger.warning(f"AI agents health check failed: {e}")
             return False
 
-    async def check_cloud_providers_health(self) -> tuple[bool, int]:
+    def check_cloud_providers_health(self) -> tuple[bool, int]:
         """
         Check cloud provider availability.
 
@@ -358,7 +358,7 @@ async def detailed_health_check(
         DetailedHealthResponse: Health status with memory/backpressure/inference details
     """
     mem_health = get_memory_health()
-    providers_healthy, model_count = await health_service.check_cloud_providers_health()
+    providers_healthy, model_count = health_service.check_cloud_providers_health()
     
     # Status is degraded if under memory pressure or no cloud providers registered
     memory_status = mem_health.get("status", "healthy")
@@ -423,7 +423,7 @@ async def readiness_check(
     redis_healthy = await health_service.check_redis()
     semantic_search_healthy = await health_service.check_semantic_search_health()
     ai_agents_healthy = await health_service.check_ai_agents_health()
-    providers_healthy, model_count = await health_service.check_cloud_providers_health()
+    providers_healthy, model_count = health_service.check_cloud_providers_health()
 
     checks = {
         "redis": redis_healthy,

@@ -580,7 +580,7 @@ class ChatService:
     async def _cms_compress_context(
         self,
         messages: list[Message],
-        target_tokens: int,
+        _target_tokens: int,
         model: str = "qwen2.5-7b",
     ) -> list[Message] | None:
         """

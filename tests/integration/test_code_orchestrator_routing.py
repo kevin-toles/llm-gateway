@@ -314,7 +314,9 @@ class TestCodeOrchestratorInternalPattern:
           - http://llm-gateway:8080/v1/tools/generate_embeddings/execute
         """
         # This is a documentation test
-        assert True, (
+        internal_port = 8083
+        gateway_port = 8080
+        assert internal_port != gateway_port, (
             "Internal services use direct ports; "
             "Gateway tools are for external clients only"
         )

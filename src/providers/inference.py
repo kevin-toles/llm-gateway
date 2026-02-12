@@ -117,7 +117,7 @@ class InferenceServiceProvider(LLMProvider):
             logger.warning(f"Could not discover models from inference-service ({self._base_url}): {e}. Using fallback list.")
             self._discovered_models = FALLBACK_MODELS.copy()
     
-    async def _get_client(self) -> httpx.AsyncClient:
+    def _get_client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client for direct inference-service calls."""
         if self._client is None:
             self._client = httpx.AsyncClient(
@@ -126,7 +126,7 @@ class InferenceServiceProvider(LLMProvider):
             )
         return self._client
     
-    async def _get_proxy_client(self) -> httpx.AsyncClient:
+    def _get_proxy_client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client for CMS proxy calls."""
         if self._proxy_client is None:
             self._proxy_client = httpx.AsyncClient(
@@ -184,11 +184,11 @@ class InferenceServiceProvider(LLMProvider):
         
         # Route through CMS proxy or direct to inference
         if self._cms_enabled:
-            client = await self._get_proxy_client()
+            client = self._get_proxy_client()
             endpoint = "/v1/proxy/chat/completions"
             logger.debug("Inference request via CMS proxy: model=%s", request.model)
         else:
-            client = await self._get_client()
+            client = self._get_client()
             endpoint = "/v1/chat/completions"
             logger.debug("Inference request direct: model=%s", request.model)
         
@@ -230,10 +230,10 @@ class InferenceServiceProvider(LLMProvider):
         
         # Route through CMS proxy or direct to inference
         if self._cms_enabled:
-            client = await self._get_proxy_client()
+            client = self._get_proxy_client()
             endpoint = "/v1/proxy/chat/completions"
         else:
-            client = await self._get_client()
+            client = self._get_client()
             endpoint = "/v1/chat/completions"
         
         # Loop detection header for streaming (same as non-streaming)

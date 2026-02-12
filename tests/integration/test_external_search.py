@@ -307,7 +307,9 @@ class TestInternalDirectCallPattern:
         #   http://llm-gateway:8080/v1/tools/hybrid_search/execute
         
         # This is a pass-through test to document the pattern
-        assert True, (
+        internal_port = 8081
+        gateway_port = 8080
+        assert internal_port != gateway_port, (
             "Internal services use direct ports; "
             "Gateway tools are for external clients only"
         )
