@@ -670,6 +670,53 @@ class ChatService:
             logger.warning("CMS compression call failed: %s", e)
             return None
     
+    def _extract_system_message(
+        self, messages: list[Message],
+    ) -> tuple[list[Message], list[Message], int]:
+        """Separate system message from the rest and count its tokens.
+
+        Returns:
+            (result_prefix, remaining_messages, tokens_used)
+        """
+        if messages and messages[0].role == "system":
+            return [messages[0]], messages[1:], self._estimate_token_count([messages[0]])
+        return [], messages, 0
+
+    def _apply_floor_guard(
+        self,
+        result: list[Message],
+        messages: list[Message],
+        target_tokens: int,
+        tokens_used: int,
+    ) -> None:
+        """Ensure result is non-empty by hard-truncating the last message if needed.
+
+        LangChain trim_messages pattern: never return an empty context.
+        Mutates *result* in place.
+        """
+        has_only_system = len(result) == 1 and result[0].role == "system"
+        if result and not has_only_system:
+            return
+        if not messages:
+            return
+
+        last_msg = messages[-1]
+        available_tokens = max(target_tokens - tokens_used, 100)
+        max_chars = available_tokens * DEFAULT_CHARS_PER_TOKEN
+        truncated_content = (last_msg.content or "")[:max_chars]
+        if not truncated_content:
+            return
+
+        result.append(Message(
+            role=last_msg.role,
+            content=truncated_content,
+        ))
+        logger.warning(
+            "Floor guard: hard-truncated message from %d to %d chars to prevent empty context",
+            len(last_msg.content or ""),
+            len(truncated_content),
+        )
+
     def _fallback_compress(
         self,
         messages: list[Message],
@@ -690,18 +737,11 @@ class ChatService:
         if not messages:
             return messages
         
-        result: list[Message] = []
-        tokens_used = 0
-        
-        # Always keep system message if present
-        if messages[0].role == "system":
-            result.append(messages[0])
-            tokens_used = self._estimate_token_count([messages[0]])
-            messages = messages[1:]
+        result, remaining, tokens_used = self._extract_system_message(messages)
         
         # Add messages from end until we hit limit
         messages_to_add: list[Message] = []
-        for msg in reversed(messages):
+        for msg in reversed(remaining):
             msg_tokens = self._estimate_token_count([msg])
             if tokens_used + msg_tokens <= target_tokens:
                 messages_to_add.insert(0, msg)
@@ -711,29 +751,14 @@ class ChatService:
         
         result.extend(messages_to_add)
         
-        # Floor guard: never return empty list (LangChain trim_messages pattern)
-        # If no messages fit, hard-truncate the last message's content to fit
-        if not result or (len(result) == 1 and result[0].role == "system" and messages):
-            last_msg = messages[-1]
-            available_tokens = max(target_tokens - tokens_used, 100)  # At least 100 tokens
-            max_chars = available_tokens * DEFAULT_CHARS_PER_TOKEN
-            truncated_content = (last_msg.content or "")[:max_chars]
-            if truncated_content:
-                result.append(Message(
-                    role=last_msg.role,
-                    content=truncated_content,
-                ))
-                logger.warning(
-                    "Floor guard: hard-truncated message from %d to %d chars to prevent empty context",
-                    len(last_msg.content or ""),
-                    len(truncated_content),
-                )
+        self._apply_floor_guard(result, remaining, target_tokens, tokens_used)
         
-        if len(result) < len(messages) + (1 if messages and messages[0].role == "system" else 0):
+        original_count = len(remaining) + (len(result) - len(messages_to_add))
+        if len(result) < original_count:
             logger.info(
                 "Context truncated: kept %d of %d messages (~%d tokens)",
                 len(result),
-                len(messages) + len(result),
+                original_count,
                 tokens_used,
             )
         
