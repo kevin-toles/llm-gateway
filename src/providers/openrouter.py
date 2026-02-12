@@ -149,7 +149,7 @@ class OpenRouterProvider(LLMProvider):
             # Transform to our response format
             return self._transform_response(response, request.model)
             
-        except (AuthenticationError, RateLimitError, ProviderError):
+        except (RateLimitError, ProviderError):
             raise
         except Exception as e:
             self._handle_error(e)
@@ -183,7 +183,7 @@ class OpenRouterProvider(LLMProvider):
             async for chunk in stream:
                 yield self._transform_chunk(chunk, request.model)
                 
-        except (AuthenticationError, RateLimitError, ProviderError):
+        except (RateLimitError, ProviderError):
             raise
         except Exception as e:
             self._handle_error(e)

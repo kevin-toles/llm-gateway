@@ -147,7 +147,7 @@ class DeepSeekProvider(LLMProvider):
                 if attempt < self._max_retries - 1:
                     delay = self._retry_delay * (2 ** attempt)
                     await asyncio.sleep(delay)
-            except (AuthenticationError, ProviderError):
+            except ProviderError:
                 raise
             except Exception as e:
                 last_error = ProviderError(

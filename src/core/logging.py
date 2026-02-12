@@ -155,7 +155,7 @@ def setup_structured_logging(
             file_handler = create_file_handler(log_file_path, service_name)
             file_handler.setLevel(log_level)
             logger.addHandler(file_handler)
-        except (PermissionError, OSError) as e:
+        except OSError as e:
             logger.warning(f"Cannot write to {log_file_path}, file logging disabled: {e}")
     
     logger.propagate = False

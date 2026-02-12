@@ -256,7 +256,7 @@ def _setup_file_logging(log_level: int) -> None:
         root_logger.setLevel(log_level)
         root_logger.addHandler(file_handler)
         _file_logging_configured = True
-    except (PermissionError, OSError) as e:
+    except OSError as e:
         print(f'{{"timestamp": "{datetime.now(timezone.utc).isoformat()}", "level": "WARNING", "service": "llm-gateway", "message": "File logging disabled: {e}"}}', file=sys.stderr)
         _file_logging_configured = True
 
