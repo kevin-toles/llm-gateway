@@ -255,6 +255,79 @@ class TestHealthService:
         assert isinstance(result, bool)
 
 
+# =============================================================================
+# TWR3: Fix LLM Gateway Health Endpoint (D6)
+# =============================================================================
+
+
+class TestTWR3HealthModelsAvailable:
+    """
+    TWR3 RED: Verify GET /health returns dynamic models_available count.
+
+    AC-TWR3.1: models_available reflects actual registered model count (not hardcoded 0).
+    AC-TWR3.2: Health check uses router.REGISTERED_MODELS, not phantom EXTERNAL_MODELS.
+    """
+
+    def test_health_returns_models_available_gt_zero(self, client: TestClient):
+        """
+        AC-TWR3.1: GET /health must return models_available > 0
+        when model_registry.yaml has registered models.
+        """
+        response = client.get("/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert "models_available" in data
+        assert data["models_available"] > 0, (
+            f"models_available should reflect YAML registry count, got {data['models_available']}"
+        )
+
+    def test_health_models_available_matches_yaml_registry(self, client: TestClient):
+        """
+        AC-TWR3.1: models_available must equal the number of models
+        in config/model_registry.yaml (currently 27).
+        """
+        response = client.get("/health")
+        data = response.json()
+        # YAML has: inference(15) + anthropic(2) + openai(4) + google(4) + deepseek(2) = 27
+        assert data["models_available"] >= 20, (
+            f"Expected at least 20 models from YAML, got {data['models_available']}"
+        )
+
+    def test_check_cloud_providers_uses_registered_models(self):
+        """
+        AC-TWR3.2: check_cloud_providers_health() must use
+        router.REGISTERED_MODELS (instance attr), NOT
+        ProviderRouter.EXTERNAL_MODELS (phantom class attr).
+        """
+        service = HealthService()
+        # This must NOT raise AttributeError
+        is_healthy, count = service.check_cloud_providers_health()
+        assert isinstance(is_healthy, bool)
+        assert isinstance(count, int)
+        assert count > 0, "REGISTERED_MODELS should have entries from YAML"
+
+    def test_no_external_models_attribute_error(self):
+        """
+        AC-TWR3.2: ProviderRouter must not be accessed via phantom
+        class attribute EXTERNAL_MODELS — that attribute does not exist.
+        """
+        from src.providers.router import ProviderRouter
+        assert not hasattr(ProviderRouter, "EXTERNAL_MODELS"), (
+            "EXTERNAL_MODELS is a phantom class attribute — use instance REGISTERED_MODELS"
+        )
+
+    def test_detailed_health_returns_dynamic_model_count(self, client: TestClient):
+        """
+        AC-TWR3.1: /health/detailed must also return dynamic model count
+        (it already calls check_cloud_providers_health).
+        """
+        response = client.get("/health/detailed")
+        data = response.json()
+        assert data["models_available"] > 0, (
+            f"Detailed health models_available should be dynamic, got {data['models_available']}"
+        )
+
+
 class TestMetricsServiceProviderMethods:
     """
     Test suite for MetricsService provider-specific methods - WBS 2.2.1.3.4

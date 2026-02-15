@@ -118,13 +118,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.initialized = True
     app.state.environment = ENV
     
-    # NOTE: WBS 2.1.1.2.2 - Redis connection pool initialization
-    # Implementation deferred to Stage 3: Integration (WBS 3.x)
-    # When Redis is integrated: app.state.redis_pool = await create_redis_pool()
+    # TWR4 (D7): Provider registry initialization — WBS 2.1.1.2.3
+    # Creates ProviderRouter with providers loaded from API keys in settings.
+    # REGISTERED_MODELS loaded from config/model_registry.yaml.
+    from src.providers.router import create_provider_router
+    app.state.provider_registry = create_provider_router(settings)
+    logger.info(
+        f"Provider registry initialized: "
+        f"{len(app.state.provider_registry.REGISTERED_MODELS)} registered models, "
+        f"{len(app.state.provider_registry.providers)} active providers"
+    )
     
-    # NOTE: WBS 2.1.1.2.3 - Provider client registry initialization
-    # Implementation deferred to Stage 3: Integration (WBS 3.x)
-    # When providers are integrated: app.state.provider_registry = ProviderRegistry()
+    # TWR4 (D7): Redis connection pool initialization — WBS 2.1.1.2.2
+    # Graceful fallback: Redis is optional; app runs without it.
+    try:
+        import redis.asyncio as aioredis
+        app.state.redis_pool = aioredis.from_url(
+            settings.redis_url,
+            max_connections=settings.redis_pool_size,
+            decode_responses=True,
+        )
+        await app.state.redis_pool.ping()
+        logger.info(f"Redis pool initialized: {settings.redis_url}")
+    except Exception as e:
+        logger.warning(f"Redis unavailable, proceeding without caching: {e}")
+        app.state.redis_pool = None
     
     yield
     
@@ -136,17 +154,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Clean up resources - WBS 2.1.1.2.8
     app.state.initialized = False
     
-    # NOTE: WBS 2.1.1.2.5 - Redis connection cleanup
-    # Implementation deferred to Stage 3: Integration (WBS 3.x)
-    # When Redis is integrated:
-    # if hasattr(app.state, "redis_pool"):
-    #     await app.state.redis_pool.close()
+    # TWR4 (D7): Redis connection cleanup — WBS 2.1.1.2.5
+    if hasattr(app.state, "redis_pool") and app.state.redis_pool is not None:
+        try:
+            await app.state.redis_pool.aclose()
+            logger.info("Redis pool closed")
+        except Exception as e:
+            logger.warning(f"Error closing Redis pool: {e}")
+    app.state.redis_pool = None
     
-    # NOTE: WBS 2.1.1.2.6 - Provider client shutdown
-    # Implementation deferred to Stage 3: Integration (WBS 3.x)
-    # When providers are integrated:
-    # if hasattr(app.state, "provider_registry"):
-    #     await app.state.provider_registry.shutdown()
+    # TWR4 (D7): Provider registry cleanup — WBS 2.1.1.2.6
+    if hasattr(app.state, "provider_registry"):
+        app.state.provider_registry = None
+        logger.info("Provider registry released")
 
 
 # Initialize FastAPI application with lifespan - WBS 2.1.1.1.1

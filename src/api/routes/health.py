@@ -99,6 +99,7 @@ class HealthService:
         redis_url: str | None = None,
         semantic_search_url: str | None = None,
         ai_agents_url: str | None = None,
+        router: ProviderRouter | None = None,
     ):
         """
         Initialize health service with optional URL overrides.
@@ -107,12 +108,15 @@ class HealthService:
             redis_url: Redis connection URL (defaults to env var)
             semantic_search_url: Semantic search service URL (defaults to env var)
             ai_agents_url: AI agents service URL (defaults to env var)
+            router: ProviderRouter instance for model count (defaults to new instance)
             
         WBS 3.3.1.1.5: Gateway resolves ai-agents URL via dependency injection.
+        TWR3.4: Router injected for dynamic model count (AC-TWR3.2).
         """
         self._redis_url = redis_url or REDIS_URL
         self._semantic_search_url = semantic_search_url or SEMANTIC_SEARCH_URL
         self._ai_agents_url = ai_agents_url or AI_AGENTS_URL
+        self._router = router or ProviderRouter()
 
     async def check_redis(self) -> bool:
         """
@@ -272,18 +276,18 @@ class HealthService:
         """
         Check cloud provider availability.
 
-        The gateway manages ONLY external/cloud models (service boundary).
-        Local/inference models are managed by CMS, not the gateway.
-        Returns the count of registered external models from EXTERNAL_MODELS.
+        Returns the count of registered models from the router's
+        REGISTERED_MODELS instance attribute (loaded from model_registry.yaml).
 
         Returns:
             tuple[bool, int]: (is_healthy, registered_model_count)
-            - is_healthy: True if at least one cloud provider has an API key
-            - registered_model_count: Number of registered external models
+            - is_healthy: True if at least one model is registered
+            - registered_model_count: Number of registered models
 
         Pattern: Graceful degradation with accurate status reporting (Newman pp. 352-353)
+        TWR3.2: Uses instance REGISTERED_MODELS, not phantom class EXTERNAL_MODELS (AC-TWR3.2).
         """
-        registered_count = len(ProviderRouter.EXTERNAL_MODELS)
+        registered_count = len(self._router.REGISTERED_MODELS)
         has_providers = registered_count > 0
         return has_providers, registered_count
 
@@ -321,12 +325,15 @@ router = APIRouter(tags=["Health"])
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check() -> HealthResponse:
+async def health_check(
+    health_service: HealthService = Depends(get_health_service),
+) -> HealthResponse:
     """
     Health check endpoint - always returns 200.
 
     WBS 2.2.1.1.5: Implement GET /health endpoint
     WBS 2.2.1.1.6: Return {"status": "healthy", "version": "1.0.0"}
+    TWR3.3: models_available is now dynamic from router REGISTERED_MODELS (AC-TWR3.1).
     
     NOTE: This always returns 200 so startup scripts work.
     Use /health/ready for detailed readiness checks with 503 on failure.
@@ -335,10 +342,11 @@ async def health_check() -> HealthResponse:
     Returns:
         HealthResponse: Health status and version
     """
+    _, model_count = health_service.check_cloud_providers_health()
     return HealthResponse(
         status="healthy", 
         version=APP_VERSION,
-        models_available=0,  # Router uses REGISTERED_MODELS per-instance; health check doesn't need this
+        models_available=model_count,
         inference_service="not_managed",  # Gateway manages external models only; CMS manages inference
     )
 
