@@ -1,0 +1,80 @@
+# =============================================================================
+# LLM Gateway Kustomize Base Configuration
+# =============================================================================
+# Base configuration for all environments. Environment-specific overlays
+# (dev, staging, prod) extend and customize this base.
+#
+# Usage:
+#   kubectl kustomize deploy/kubernetes/base
+#   kubectl apply -k deploy/kubernetes/base
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# =============================================================================
+# Namespace
+# =============================================================================
+namespace: llm-services
+
+# =============================================================================
+# Resources (in dependency order)
+# =============================================================================
+resources:
+  # Namespace must be first
+  - namespace.yaml
+  
+  # RBAC resources
+  - serviceaccount.yaml
+  
+  # Configuration
+  - configmap.yaml
+  - secret.yaml
+  
+  # Network policies (security)
+  - networkpolicy.yaml
+  
+  # Core workloads
+  - deployment.yaml
+  - service.yaml
+  
+  # Scaling and availability
+  - hpa.yaml
+  - pdb.yaml
+
+# =============================================================================
+# Common Labels
+# =============================================================================
+# Applied to all resources for consistent identification and management
+commonLabels:
+  app.kubernetes.io/part-of: llm-document-enhancement
+  app.kubernetes.io/managed-by: kustomize
+
+# =============================================================================
+# Images
+# =============================================================================
+# Override image tags in overlays for different environments
+images:
+  - name: llm-gateway
+    newName: llm-gateway
+    newTag: latest  # Override in overlays: dev, staging, prod
+
+# =============================================================================
+# ConfigMap Generator (optional - for file-based configs)
+# =============================================================================
+# Uncomment to generate ConfigMaps from files
+# configMapGenerator:
+#   - name: llm-gateway-files
+#     files:
+#       - config/settings.yaml
+
+# =============================================================================
+# Secret Generator (optional - for dev only, not production)
+# =============================================================================
+# Uncomment for local development with literal secrets
+# secretGenerator:
+#   - name: llm-gateway-secrets
+#     type: Opaque
+#     literals:
+#       - LLM_GATEWAY_ANTHROPIC_API_KEY=dev-key
+#       - LLM_GATEWAY_OPENAI_API_KEY=dev-key

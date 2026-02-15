@@ -1,0 +1,30 @@
+# =============================================================================
+# LLM Services Namespace
+# =============================================================================
+# Kubernetes namespace for all LLM-related services including:
+# - llm-gateway: Unified LLM provider access
+# - semantic-search: Vector search service
+# - ai-agents: Autonomous agent orchestration
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-services
+  labels:
+    # Standard Kubernetes labels
+    app.kubernetes.io/part-of: llm-document-enhancement
+    app.kubernetes.io/managed-by: kustomize
+    
+    # Environment label (overridden by overlays)
+    environment: base
+    
+    # Optional: Istio sidecar injection
+    # Uncomment to enable automatic Istio sidecar injection
+    istio-injection: enabled
+  annotations:
+    # Documentation
+    description: "Namespace for LLM document enhancement services"
+    
+    # Resource quota hints (actual quotas defined separately)
+    resource-budget: "standard"

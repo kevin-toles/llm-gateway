@@ -1,0 +1,155 @@
+# CodeRabbit Configuration for LLM Gateway
+
+# Project Information
+projectName: "llm-gateway"
+projectDescription: "FastAPI-based LLM gateway service with provider abstraction, rate limiting, and observability"
+language: "python"
+framework: "fastapi"
+
+# Review Preferences
+reviews:
+  # Auto-review configuration
+  auto_review: true
+  review_level: "comprehensive"  # basic, standard, comprehensive
+  
+  # Code Quality Focus Areas
+  focus_areas:
+    - "security"
+    - "performance" 
+    - "maintainability"
+    - "testing"
+    - "documentation"
+    - "architecture"
+  
+  # Python-specific settings
+  python:
+    style_guide: "pep8"
+    type_checking: true
+    complexity_threshold: 10
+    line_length: 88  # Black default
+    
+  # LLM Gateway specific settings
+  llm_gateway:
+    check_provider_abstraction: true
+    review_rate_limiting: true
+    validate_circuit_breakers: true
+    check_async_patterns: true
+
+# File Analysis Rules
+file_patterns:
+  # Source code patterns
+  source_files:
+    - "**/*.py"
+    - "**/*.yml"
+    - "**/*.yaml"
+    - "**/*.json"
+    - "**/Dockerfile*"
+    - "**/*.md"
+    
+  # Exclude patterns
+  exclude:
+    - "**/node_modules/**"
+    - "**/__pycache__/**"
+    - "**/.pytest_cache/**"
+    - "**/.mypy_cache/**"
+    - "**/venv/**"
+    - "**/env/**"
+    - "**/.git/**"
+    - "**/cache/**"
+    - "**/logs/**"
+    - "**/.scannerwork/**"
+    - "**/*.pyc"
+    - "**/*.pyo"
+
+# Review Rules
+rules:
+  # Security Rules
+  security:
+    - check_hardcoded_secrets: true
+    - validate_api_keys: true
+    - check_sql_injection: true
+    - validate_input_sanitization: true
+    - check_authentication: true
+    - check_rate_limiting: true
+    
+  # Code Quality Rules  
+  quality:
+    - check_complexity: true
+    - validate_error_handling: true
+    - check_logging_practices: true
+    - validate_type_hints: true
+    - check_docstrings: true
+    
+  # Architecture Rules
+  architecture:
+    - validate_fastapi_patterns: true
+    - check_repository_pattern: true
+    - check_dependency_injection: true
+    - validate_configuration_management: true
+    - check_provider_abstraction: true
+    
+  # Testing Rules
+  testing:
+    - check_test_coverage: true
+    - validate_test_structure: true
+    - check_mock_usage: true
+    - validate_integration_tests: true
+
+# Integration Settings
+integrations:
+  # GitHub Integration
+  github:
+    auto_comment: true
+    comment_on_changes_only: true
+    collapse_similar_comments: true
+    
+  # SonarQube Integration  
+  sonarqube:
+    respect_quality_gate: true
+    sync_issues: true
+    
+  # CI/CD Integration
+  cicd:
+    block_on_critical_issues: true
+    require_approval_for_security_issues: true
+
+# Notification Settings
+notifications:
+  # Review completion
+  on_review_complete: true
+  
+  # Critical issues
+  on_critical_issues: true
+  
+  # Security vulnerabilities
+  on_security_issues: true
+  
+  # Channels
+  channels:
+    - "email"
+    - "github_comments"
+
+# Learning and Adaptation
+learning:
+  # Learn from developer feedback
+  adapt_to_feedback: true
+  
+  # Project-specific patterns
+  learn_project_patterns: true
+  
+  # Custom rules
+  enable_custom_rules: true
+
+# Reporting
+reporting:
+  # Generate summary reports
+  summary_reports: true
+  
+  # Trend analysis
+  trend_analysis: true
+  
+  # Export formats
+  export_formats:
+    - "markdown"
+    - "json"
+    - "html"

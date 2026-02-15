@@ -1,0 +1,305 @@
+# ==============================================================================
+# LLM Gateway - Docker Compose (Full Stack)
+# ==============================================================================
+# Full stack local development with all services
+# WBS: 3.4.1.1 - Full Stack Compose File
+# WBS: 3.4.2.2 - Selective Service Startup (Profiles)
+# Reference: docs/DEPLOYMENT_IMPLEMENTATION_PLAN.md Section 1.2.4
+# Reference: docs/ARCHITECTURE.md lines 240-280, 345-370 - Service Discovery
+# Reference: docs/INTEGRATION_MAP.md for service configuration details
+# ==============================================================================
+#
+# Services:
+#   - semantic-search: Semantic search microservice (port 8081)
+#   - ai-agents:       AI agents microservice (port 8082)
+#   - llm-gateway:     Main LLM Gateway service (port 8080)
+#
+# External Dependencies (from ai-platform-data):
+#   - ai-platform-redis: Session storage & caching (port 6379)
+#   - ai-platform-neo4j: Graph database (ports 7474, 7687)
+#   - ai-platform-qdrant: Vector database (ports 6333, 6334)
+#
+# Profiles (WBS 3.4.2.2):
+#   - gateway-only:     Gateway only (uses platform's Redis)
+#   - full-stack:       All services (default)
+#   - integration-test: All services + test runner container
+#
+# Usage:
+#   docker-compose up -d                                    # Start all (full-stack)
+#   docker-compose --profile gateway-only up -d             # Gateway + Redis only
+#   docker-compose --profile full-stack up -d               # All services
+#   docker-compose --profile integration-test up -d         # All + test runner
+#   docker-compose config                                   # Validate configuration
+#   docker-compose ps                                       # Check service status
+#   docker-compose logs -f                                  # Follow logs
+#   docker-compose down                                     # Stop and remove
+#
+# Development (WBS 3.4.2.1):
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Health Verification (WBS 3.4.1.2):
+#   curl http://localhost:8081/health # semantic-search
+#   curl http://localhost:8082/health # ai-agents
+#   curl http://localhost:8080/health # llm-gateway
+#   curl http://localhost:8080/health/ready # llm-gateway readiness
+#
+# PREREQUISITE: ai-platform-data infrastructure must be running:
+#   cd ../ai-platform-data/docker && docker-compose -f docker-compose.yml -f docker-compose.hybrid.yml up -d
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # NOTE: Redis is provided by ai-platform-data/docker/docker-compose.yml
+  # as ai-platform-redis on the ai-platform-network
+  # This was consolidated per ADR: Single Redis Instance Architecture
+  # ============================================================================
+
+  # ============================================================================
+  # WBS 3.4.1.1.3: Semantic Search Service
+  # WBS 3.4.2.2.4: Profile: full-stack, integration-test (not gateway-only)
+  # Reference: docs/ARCHITECTURE.md lines 280-290 - URL Resolution
+  # Note: Using stub service until semantic-search-service is implemented
+  # ============================================================================
+  semantic-search:
+    build:
+      context: ./deploy/docker/stubs/semantic-search
+      dockerfile: Dockerfile
+    container_name: llm-gateway-semantic-search
+    ports:
+      - "8081:8081"
+    # WBS 3.4.1.1.9: Health check per ARCHITECTURE.md pattern
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: "no"  # Manual control via Platform Control Panel
+    networks:
+      - ai-platform-network
+    # WBS 3.4.2.2: Only in full-stack and integration-test profiles
+    profiles:
+      - full-stack
+      - integration-test
+
+  # ============================================================================
+  # WBS 3.4.1.1.4: AI Agents Service - MSEP Orchestrator
+  # WBS 3.4.2.2.4: Profile: full-stack, integration-test (not gateway-only)
+  # Reference: ai-agents/docs/ARCHITECTURE.md - Agent endpoints
+  # Reference: MULTI_STAGE_ENRICHMENT_PIPELINE_ARCHITECTURE.md
+  # Kitchen Brigade: ai-agents is EXPEDITOR for enrichment pipeline
+  # ============================================================================
+  ai-agents:
+    build:
+      context: ../ai-agents
+      dockerfile: Dockerfile
+    container_name: llm-gateway-ai-agents
+    ports:
+      - "8082:8082"
+    environment:
+      # Service configuration
+      AI_AGENTS_PORT: 8082
+      AI_AGENTS_ENVIRONMENT: development
+      AI_AGENTS_LOG_LEVEL: INFO
+      
+      # Kitchen Brigade: MSEP service dependencies
+      # Uses env vars for cross-service communication with defaults
+      # WBS-CPA6: External-facing URLs use environment variables
+      CODE_ORCHESTRATOR_URL: ${CODE_ORCHESTRATOR_URL:-http://code-orchestrator:8083}
+      SEMANTIC_SEARCH_URL: ${SEMANTIC_SEARCH_URL:-http://semantic-search:8081}
+      
+      # ai-agents internal config (AI_AGENTS_ prefix)
+      AI_AGENTS_LLM_GATEWAY_URL: http://llm-gateway:8080
+      
+      # Neo4j configuration (use shared neo4j or external)
+      AI_AGENTS_NEO4J_URI: ${AI_AGENTS_NEO4J_URI:-bolt://host.docker.internal:7687}
+      AI_AGENTS_NEO4J_USER: ${AI_AGENTS_NEO4J_USER:-neo4j}
+      AI_AGENTS_NEO4J_PASSWORD: ${AI_AGENTS_NEO4J_PASSWORD:-devpassword}
+      
+      # Agent configuration
+      AI_AGENTS_DEFAULT_LLM_MODEL: claude-3-sonnet-20240229
+      AI_AGENTS_ENABLE_CROSS_REFERENCE_AGENT: "true"
+    # WBS 3.4.1.1.10: depends_on with health condition
+    depends_on:
+      semantic-search:
+        condition: service_healthy
+    # WBS 3.4.1.1.9: Health check per ai-agents/docs pattern
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: "no"  # Manual control via Platform Control Panel
+    networks:
+      - ai-platform-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # WBS 3.4.2.2: Only in full-stack and integration-test profiles
+    profiles:
+      - full-stack
+      - integration-test
+
+  # ============================================================================
+  # WBS 3.4.1.1.5: LLM Gateway - Main Service
+  # WBS 3.4.2.2.3: Profile: gateway-only, full-stack, integration-test
+  # Reference: docs/ARCHITECTURE.md lines 240-250 - Docker Compose example
+  # ============================================================================
+  llm-gateway:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    container_name: llm-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      # Service Configuration
+      LLM_GATEWAY_ENV: development
+      LLM_GATEWAY_PORT: "8080"
+      LLM_GATEWAY_LOG_LEVEL: DEBUG
+      LLM_GATEWAY_WORKERS: "2"
+      
+      # Redis Configuration - Uses platform's centralized Redis
+      LLM_GATEWAY_REDIS_URL: redis://ai-platform-redis:6379
+      
+      # WBS 3.4.1.1.7: Service Discovery environment variables
+      # Reference: docs/ARCHITECTURE.md lines 275-290
+      # WBS-CPA6: External-facing URLs use environment variables
+      LLM_GATEWAY_SEMANTIC_SEARCH_URL: ${LLM_GATEWAY_SEMANTIC_SEARCH_URL:-http://semantic-search:8081}
+      LLM_GATEWAY_AI_AGENTS_URL: ${LLM_GATEWAY_AI_AGENTS_URL:-http://ai-agents:8082}
+      LLM_GATEWAY_CODE_ORCHESTRATOR_URL: ${LLM_GATEWAY_CODE_ORCHESTRATOR_URL:-http://code-orchestrator:8083}
+      
+      # Provider Configuration (override with .env file)
+      LLM_GATEWAY_DEFAULT_PROVIDER: anthropic
+      LLM_GATEWAY_DEFAULT_MODEL: claude-3-sonnet-20240229
+      
+      # Rate Limiting
+      LLM_GATEWAY_RATE_LIMIT_REQUESTS_PER_MINUTE: "60"
+      
+      # Session Configuration
+      LLM_GATEWAY_SESSION_TTL_SECONDS: "3600"
+    env_file:
+      - .env  # For API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY)
+    # WBS 3.4.1.1.10: depends_on with health conditions
+    # Note: Redis is external (ai-platform-redis), no depends_on needed
+    # Note: Conditional dependencies based on profile handled at runtime
+    # WBS 3.4.1.1.9: Health check matching Comp_Static_Analysis_Report fix #2
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: "no"  # Manual control via Platform Control Panel
+    networks:
+      - ai-platform-network
+    # WBS 3.4.2.2: Only in full-stack and integration-test profiles (not gateway-only)
+    profiles:
+      - full-stack
+      - integration-test
+
+  # ============================================================================
+  # WBS 3.4.2.2.3: LLM Gateway - Gateway-Only Profile Version
+  # Standalone gateway that uses platform's centralized Redis
+  # Uses host.docker.internal for macOS/Windows to reach services on host ports
+  # ============================================================================
+  llm-gateway-standalone:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    container_name: llm-gateway-standalone
+    ports:
+      - "8080:8080"
+    environment:
+      LLM_GATEWAY_ENV: development
+      LLM_GATEWAY_PORT: "8080"
+      LLM_GATEWAY_LOG_LEVEL: DEBUG
+      LLM_GATEWAY_WORKERS: "2"
+      # Use platform's centralized Redis (ai-platform-redis on ai-platform-network)
+      LLM_GATEWAY_REDIS_URL: redis://ai-platform-redis:6379
+      # Host URLs for services running on host ports (macOS Docker Desktop)
+      # Reference: ARCHITECTURE.md - Kitchen Brigade service discovery
+      LLM_GATEWAY_SEMANTIC_SEARCH_URL: http://host.docker.internal:8081
+      LLM_GATEWAY_AI_AGENTS_URL: http://host.docker.internal:8082
+      # Inference service for local GGUF models (running on host)
+      LLM_GATEWAY_INFERENCE_SERVICE_URL: http://host.docker.internal:8085
+      INFERENCE_SERVICE_URL: http://host.docker.internal:8085
+      LLM_GATEWAY_DEFAULT_PROVIDER: anthropic
+      LLM_GATEWAY_DEFAULT_MODEL: claude-3-sonnet-20240229
+      LLM_GATEWAY_RATE_LIMIT_REQUESTS_PER_MINUTE: "60"
+      LLM_GATEWAY_SESSION_TTL_SECONDS: "3600"
+    env_file:
+      - .env
+    # No depends_on - uses external platform Redis (ai-platform-redis)
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: "no"  # Manual control via Platform Control Panel
+    networks:
+      - ai-platform-network  # Platform network for Redis access
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # WBS 3.4.2.2.3: Only in gateway-only profile
+    profiles:
+      - gateway-only
+
+  # ============================================================================
+  # WBS 3.4.2.2.5: Integration Test Runner
+  # Profile: integration-test only
+  # Runs pytest against the full stack
+  # ============================================================================
+  test-runner:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.dev
+    container_name: llm-gateway-test-runner
+    volumes:
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./test-results:/app/test-results
+    environment:
+      LLM_GATEWAY_ENV: test
+      LLM_GATEWAY_REDIS_URL: redis://ai-platform-redis:6379
+      # WBS-CPA6: Service URLs with defaults
+      LLM_GATEWAY_SEMANTIC_SEARCH_URL: ${LLM_GATEWAY_SEMANTIC_SEARCH_URL:-http://semantic-search:8081}
+      LLM_GATEWAY_AI_AGENTS_URL: ${LLM_GATEWAY_AI_AGENTS_URL:-http://ai-agents:8082}
+      LLM_GATEWAY_CODE_ORCHESTRATOR_URL: ${LLM_GATEWAY_CODE_ORCHESTRATOR_URL:-http://code-orchestrator:8083}
+      # Test against running gateway
+      TEST_GATEWAY_URL: http://llm-gateway:8080
+    depends_on:
+      llm-gateway:
+        condition: service_healthy
+      semantic-search:
+        condition: service_healthy
+      ai-agents:
+        condition: service_healthy
+    # Run integration tests and exit
+    command: >
+      pytest tests/integration/ 
+      -v 
+      --tb=short 
+      --junitxml=/app/test-results/integration-results.xml
+    networks:
+      - ai-platform-network
+    # WBS 3.4.2.2.5: Only in integration-test profile
+    profiles:
+      - integration-test
+
+# ==============================================================================
+# WBS 3.4.1.1.6: Networks - Unified platform network
+# Reference: ai-platform-data/docs/NETWORK_ARCHITECTURE.md
+# ==============================================================================
+networks:
+  ai-platform-network:
+    name: ai-platform-network
+    external: true
+
+# ==============================================================================
+# WBS 3.4.1.1.8: Volumes - Data persistence
+# NOTE: Redis volume removed - using ai-platform-redis from ai-platform-data
+# ==============================================================================
+volumes: {}

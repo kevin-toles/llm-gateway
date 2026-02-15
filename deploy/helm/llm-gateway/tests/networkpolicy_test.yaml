@@ -1,0 +1,174 @@
+# =============================================================================
+# LLM Gateway - NetworkPolicy Template Unit Tests
+# =============================================================================
+# Tests for deploy/helm/llm-gateway/templates/networkpolicy.yaml
+# Run with: helm unittest deploy/helm/llm-gateway
+# =============================================================================
+
+suite: networkpolicy template tests
+templates:
+  - templates/networkpolicy.yaml
+
+tests:
+  # =========================================================================
+  # Conditional Creation Tests
+  # =========================================================================
+  - it: should create NetworkPolicies when enabled
+    set:
+      networkPolicy:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: should NOT create NetworkPolicies when disabled
+    set:
+      networkPolicy:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # =========================================================================
+  # Ingress NetworkPolicy Tests
+  # =========================================================================
+  - it: should create ingress NetworkPolicy
+    set:
+      networkPolicy:
+        enabled: true
+    documentIndex: 0
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-llm-gateway-ingress
+
+  - it: ingress policy should have correct pod selector
+    set:
+      networkPolicy:
+        enabled: true
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.podSelector.matchLabels["app.kubernetes.io/name"]
+          value: llm-gateway
+
+  - it: ingress policy should have Ingress policyType
+    set:
+      networkPolicy:
+        enabled: true
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.policyTypes
+          content: Ingress
+
+  - it: should allow ingress from ingress controller namespace
+    set:
+      networkPolicy:
+        enabled: true
+        ingress:
+          allowIngressController: true
+          ingressControllerNamespace: ingress-nginx
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: ingress-nginx
+            ports:
+              - protocol: TCP
+                port: 8080
+
+  - it: should allow ingress from monitoring namespace
+    set:
+      networkPolicy:
+        enabled: true
+        ingress:
+          allowMonitoring: true
+          monitoringNamespace: prometheus
+    documentIndex: 0
+    asserts:
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: prometheus
+            ports:
+              - protocol: TCP
+                port: 8080
+
+  # =========================================================================
+  # Egress NetworkPolicy Tests
+  # =========================================================================
+  - it: should create egress NetworkPolicy
+    set:
+      networkPolicy:
+        enabled: true
+    documentIndex: 1
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-llm-gateway-egress
+
+  - it: egress policy should have Egress policyType
+    set:
+      networkPolicy:
+        enabled: true
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: spec.policyTypes
+          content: Egress
+
+  - it: should allow DNS egress when enabled
+    set:
+      networkPolicy:
+        enabled: true
+        egress:
+          allowDns: true
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - namespaceSelector: {}
+                podSelector:
+                  matchLabels:
+                    k8s-app: kube-dns
+            ports:
+              - protocol: UDP
+                port: 53
+              - protocol: TCP
+                port: 53
+
+  - it: should allow external HTTPS egress when enabled
+    set:
+      networkPolicy:
+        enabled: true
+        egress:
+          allowExternalHttps: true
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+                  except:
+                    - 10.0.0.0/8
+                    - 172.16.0.0/12
+                    - 192.168.0.0/16
+            ports:
+              - protocol: TCP
+                port: 443

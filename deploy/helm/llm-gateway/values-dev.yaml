@@ -1,0 +1,77 @@
+# =============================================================================
+# LLM Gateway - Development Environment Values
+# =============================================================================
+# Usage:
+#   helm install llm-gateway ./deploy/helm/llm-gateway -f values-dev.yaml
+# =============================================================================
+
+# Single replica for development
+replicaCount: 1
+
+# Development image tag
+image:
+  tag: "dev"
+
+# Minimal resources for development
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "1Gi"
+
+# Disable autoscaling in dev
+autoscaling:
+  enabled: false
+
+# Disable PDB in dev (single replica)
+podDisruptionBudget:
+  enabled: false
+
+# Development application config
+config:
+  environment: "development"
+  logLevel: "DEBUG"
+  workers: 1
+  rateLimitRequestsPerMinute: 1000  # Higher for testing
+  rateLimitTokensPerMinute: 1000000
+
+# Development secrets (use test keys)
+secrets:
+  create: true
+  # For dev, you might use test API keys
+  anthropicApiKey: ""
+  openaiApiKey: ""
+
+# Disable network policies for easier debugging
+networkPolicy:
+  enabled: false
+
+# Minimal Redis for development
+redis:
+  enabled: true
+  architecture: standalone
+  master:
+    persistence:
+      enabled: false  # No persistence in dev
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+
+# Enable ingress for local development
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  hosts:
+    - host: llm-gateway.dev.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []  # No TLS in dev
