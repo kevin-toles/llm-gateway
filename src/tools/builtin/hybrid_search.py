@@ -136,6 +136,11 @@ HYBRID_SEARCH_DEFINITION = ToolDefinition(
                 "description": "Apply tier-based score boosting to results (default: true).",
                 "default": True,
             },
+            "expand_taxonomy": {
+                "type": "boolean",
+                "description": "Expand query with related TaxonomyConcept terms from Neo4j SIMILAR_TO edges (default: false).",
+                "default": False,
+            },
             "focus_areas": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -235,6 +240,7 @@ async def hybrid_search(args: dict[str, Any]) -> dict[str, Any]:
     bloom_tier_filter = args.get("bloom_tier_filter")
     quality_tier_filter = args.get("quality_tier_filter")
     bloom_tier_boost = args.get("bloom_tier_boost", True)
+    expand_taxonomy = args.get("expand_taxonomy", False)
     focus_areas = args.get("focus_areas")
 
     # WBS-TXS5.13: Validate tier parameter ranges at gateway level
@@ -255,13 +261,15 @@ async def hybrid_search(args: dict[str, Any]) -> dict[str, Any]:
                 )
 
     # Build request payload - matches HybridSearchRequest schema
+    # NOTE: external param `bloom_tier_boost` maps to service field `tier_boost` (WBS-TXS7)
     payload: dict[str, Any] = {
         "query": query,
         "limit": limit,
         "alpha": alpha,
         "collection": collection,
         "include_graph": include_graph,
-        "bloom_tier_boost": bloom_tier_boost,
+        "tier_boost": bloom_tier_boost,
+        "expand_taxonomy": expand_taxonomy,
     }
     
     # Add optional parameters if provided

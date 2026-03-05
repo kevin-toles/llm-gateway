@@ -293,8 +293,9 @@ class TestTierParametersInPayload:
             call_args = mock_search.call_args
             payload = call_args[0][1]
             
-            assert "bloom_tier_boost" in payload
-            assert payload["bloom_tier_boost"] is False
+            # bloom_tier_boost (external MCP param) maps to tier_boost in payload (WBS-TXS7)
+            assert "tier_boost" in payload
+            assert payload["tier_boost"] is False
 
 
 # =============================================================================
@@ -331,9 +332,9 @@ class TestOmittingTierParameters:
             # (to maintain backward compatibility)
             assert "bloom_tier_filter" not in payload
             assert "quality_tier_filter" not in payload
-            # bloom_tier_boost defaults to True, so it should be included
-            assert "bloom_tier_boost" in payload
-            assert payload["bloom_tier_boost"] is True
+            # bloom_tier_boost defaults to True → forwarded as tier_boost (WBS-TXS7)
+            assert "tier_boost" in payload
+            assert payload["tier_boost"] is True
 
 
 # =============================================================================
