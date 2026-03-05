@@ -121,6 +121,21 @@ HYBRID_SEARCH_DEFINITION = ToolDefinition(
                 "items": {"type": "integer"},
                 "description": "Filter to specific taxonomy tiers (1=Architecture, 2=Implementation, 3=Engineering).",
             },
+            "bloom_tier_filter": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "Filter chapters by Bloom cognitive taxonomy tier (0–6: T0=Foundational Recall, T6=Innovation/Research).",
+            },
+            "quality_tier_filter": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "Filter code_chunks by CRE repository quality tier (1=flagship, 2=standard, 3=supplemental).",
+            },
+            "bloom_tier_boost": {
+                "type": "boolean",
+                "description": "Apply tier-based score boosting to results (default: true).",
+                "default": True,
+            },
             "focus_areas": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -174,6 +189,7 @@ async def hybrid_search(args: dict[str, Any]) -> dict[str, Any]:
     Execute a hybrid search combining vector similarity and graph relationships.
 
     WBS-CPA1.4: Implement hybrid_search tool function.
+    WBS-TXS5: Add bloom_tier_filter, quality_tier_filter, bloom_tier_boost params.
     
     This tool proxies requests from external clients (MCP, external LLMs) through
     the Gateway to the semantic-search-service. Internal platform services call
@@ -186,7 +202,10 @@ async def hybrid_search(args: dict[str, Any]) -> dict[str, Any]:
             - alpha (float, optional): Vector vs graph weight (default: 0.7).
             - collection (str, optional): Collection to search (default: 'documents').
             - include_graph (bool, optional): Include graph scoring (default: True).
-            - tier_filter (list[int], optional): Filter to taxonomy tiers.
+            - tier_filter (list[int], optional): Filter to taxonomy tiers (legacy).
+            - bloom_tier_filter (list[int], optional): Filter chapters by Bloom tier (0-6).
+            - quality_tier_filter (list[int], optional): Filter code_chunks by quality tier (1-3).
+            - bloom_tier_boost (bool, optional): Apply tier-based score boosting (default: True).
             - focus_areas (list[str], optional): Domain-aware focus areas.
 
     Returns:
@@ -213,7 +232,27 @@ async def hybrid_search(args: dict[str, Any]) -> dict[str, Any]:
     collection = args.get("collection", "documents")
     include_graph = args.get("include_graph", True)
     tier_filter = args.get("tier_filter")
+    bloom_tier_filter = args.get("bloom_tier_filter")
+    quality_tier_filter = args.get("quality_tier_filter")
+    bloom_tier_boost = args.get("bloom_tier_boost", True)
     focus_areas = args.get("focus_areas")
+
+    # WBS-TXS5.13: Validate tier parameter ranges at gateway level
+    if bloom_tier_filter is not None:
+        for tier in bloom_tier_filter:
+            if not isinstance(tier, int) or tier < 0 or tier > 6:
+                raise HybridSearchServiceError(
+                    f"Invalid bloom_tier_filter value: {tier}. "
+                    "Valid range is 0-6 (T0=Foundational Recall to T6=Innovation/Research)."
+                )
+    
+    if quality_tier_filter is not None:
+        for tier in quality_tier_filter:
+            if not isinstance(tier, int) or tier < 1 or tier > 3:
+                raise HybridSearchServiceError(
+                    f"Invalid quality_tier_filter value: {tier}. "
+                    "Valid range is 1-3 (1=flagship, 2=standard, 3=supplemental)."
+                )
 
     # Build request payload - matches HybridSearchRequest schema
     payload: dict[str, Any] = {
@@ -222,11 +261,16 @@ async def hybrid_search(args: dict[str, Any]) -> dict[str, Any]:
         "alpha": alpha,
         "collection": collection,
         "include_graph": include_graph,
+        "bloom_tier_boost": bloom_tier_boost,
     }
     
     # Add optional parameters if provided
     if tier_filter is not None:
         payload["tier_filter"] = tier_filter
+    if bloom_tier_filter is not None:
+        payload["bloom_tier_filter"] = bloom_tier_filter
+    if quality_tier_filter is not None:
+        payload["quality_tier_filter"] = quality_tier_filter
     if focus_areas is not None:
         payload["focus_areas"] = focus_areas
 
