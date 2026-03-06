@@ -1,0 +1,643 @@
+openapi: 3.1.0
+info:
+  title: LLM Gateway
+  description: Unified gateway for LLM provider access
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      tags:
+      - Health
+      summary: Health Check
+      description: "Health check endpoint.\n\nWBS 2.2.1.1.5: Implement GET /health\
+        \ endpoint\nWBS 2.2.1.1.6: Return {\"status\": \"healthy\", \"version\": \"\
+        1.0.0\"}\n\nReturns:\n    HealthResponse: Health status and version"
+      operationId: health_check_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /health/ready:
+    get:
+      tags:
+      - Health
+      summary: Readiness Check
+      description: "Readiness check endpoint.\n\nWBS 2.2.1.2.1: Implement GET /health/ready\
+        \ endpoint\nWBS 2.2.1.2.2: Check Redis connectivity\nWBS 3.2.1.2.1: Add semantic-search\
+        \ health check to gateway readiness\nWBS 2.2.1.2.4: Return {\"status\": \"\
+        ready\"} if all checks pass\nWBS 2.2.1.2.5: Return 503 if dependencies unavailable\n\
+        WBS 3.2.1.2.4: Report degraded status if semantic-search unavailable\n\nArgs:\n\
+        \    response: FastAPI response object for setting status code\n    health_service:\
+        \ Injected health service dependency\n\nReturns:\n    ReadinessResponse: Readiness\
+        \ status with dependency checks\n    \nPattern: Graceful degradation (Newman\
+        \ pp. 352-353)"
+      operationId: readiness_check_health_ready_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+  /metrics:
+    get:
+      tags:
+      - Health
+      summary: Metrics
+      description: "Prometheus metrics endpoint.\n\nWBS 2.2.1.3.1: Implement GET /metrics\
+        \ endpoint\nWBS 2.2.1.3.2: Expose Prometheus metrics format\nWBS 2.2.1.3.3:\
+        \ Include request count, latency, error rate\n\nArgs:\n    metrics_service:\
+        \ Injected metrics service dependency\n\nReturns:\n    PlainTextResponse:\
+        \ Prometheus text format metrics"
+      operationId: metrics_metrics_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /v1/chat/completions:
+    post:
+      tags:
+      - Chat
+      summary: Create Chat Completion
+      description: "Create a chat completion (streaming or non-streaming).\n\nWBS\
+        \ 2.2.2.3.1: POST /v1/chat/completions endpoint\nWBS 2.2.2.3.2: Returns OpenAI-compatible\
+        \ response\nWBS 2.2.2.3.9: Provider errors return 502 Bad Gateway\nWBS 2.2.3.2.1:\
+        \ Supports streaming with stream=true\n\nPattern: Dependency injection for\
+        \ service layer (Sinha p. 90)\nPattern: Pydantic request validation (Sinha\
+        \ pp. 193-195)\nPattern: Iterator protocol with yield for streaming (GUIDELINES\
+        \ p. 2149)\nPattern: Error translation (Newman pp. 273-275)\n\nArgs:\n   \
+        \ request: Chat completion request with messages and parameters\n    chat_service:\
+        \ Injected chat service dependency\n\nReturns:\n    ChatCompletionResponse:\
+        \ Full response (non-streaming)\n    StreamingResponse: SSE stream (streaming)\n\
+        \    JSONResponse: Error response with 502 status\n\nRaises:\n    HTTPException\
+        \ 422: Request validation failed\n    JSONResponse 502: Provider error (upstream\
+        \ failure)"
+      operationId: create_chat_completion_v1_chat_completions_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/sessions:
+    post:
+      tags:
+      - Sessions
+      summary: Create a new session
+      description: Create a new session for conversation continuity.
+      operationId: create_session_v1_sessions_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreateRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/sessions/{session_id}:
+    get:
+      tags:
+      - Sessions
+      summary: Get session state
+      description: Retrieve the current state of a session.
+      operationId: get_session_v1_sessions__session_id__get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Sessions
+      summary: Delete session
+      description: Delete a session and its conversation history.
+      operationId: delete_session_v1_sessions__session_id__delete
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/tools:
+    get:
+      tags:
+      - Tools
+      summary: List Tools
+      description: "List all available tools.\n\nReturns:\n    List of tool definitions"
+      operationId: list_tools_v1_tools_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ToolDefinition'
+                type: array
+                title: Response List Tools V1 Tools Get
+  /v1/tools/execute:
+    post:
+      tags:
+      - Tools
+      summary: Execute Tool
+      description: "Execute a tool with given arguments.\n\nWBS 2.2.4.3.1: POST /v1/tools/execute\
+        \ endpoint\nWBS 2.2.4.3.2: Validate tool name exists in registry\nWBS 2.2.4.3.3:\
+        \ Validate tool arguments against schema\nWBS 2.2.4.3.4: Execute tool via\
+        \ executor service\nWBS 2.2.4.3.5: Return tool result or error\n\nPattern:\
+        \ Command pattern for tool invocation (Buelta p. 219)\n\nArgs:\n    request:\
+        \ Tool execution request\n    tool_executor: Injected tool executor service\n\
+        \nReturns:\n    ToolExecuteResponse with result or error\n\nRaises:\n    HTTPException\
+        \ 404: Tool not found in registry\n    HTTPException 422: Invalid tool arguments"
+      operationId: execute_tool_v1_tools_execute_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ToolExecuteRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolExecuteResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /:
+    get:
+      tags:
+      - Info
+      summary: Root
+      description: Root endpoint returning basic service information.
+      operationId: root__get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Root  Get
+components:
+  schemas:
+    ChatCompletionRequest:
+      properties:
+        model:
+          type: string
+          title: Model
+          description: Model identifier
+        messages:
+          items:
+            $ref: '#/components/schemas/Message'
+          type: array
+          title: Messages
+          description: Conversation messages
+        temperature:
+          anyOf:
+          - type: number
+            maximum: 2.0
+            minimum: 0.0
+          - type: 'null'
+          title: Temperature
+          description: Sampling temperature
+        max_tokens:
+          anyOf:
+          - type: integer
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: Max Tokens
+          description: Maximum tokens to generate
+        top_p:
+          anyOf:
+          - type: number
+            maximum: 1.0
+            minimum: 0.0
+          - type: 'null'
+          title: Top P
+          description: Nucleus sampling
+        n:
+          anyOf:
+          - type: integer
+            maximum: 128.0
+            minimum: 1.0
+          - type: 'null'
+          title: N
+          description: Number of completions
+        stream:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Stream
+          description: Enable streaming
+          default: false
+        stop:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: string
+          - type: 'null'
+          title: Stop
+          description: Stop sequences
+        presence_penalty:
+          anyOf:
+          - type: number
+            maximum: 2.0
+            minimum: -2.0
+          - type: 'null'
+          title: Presence Penalty
+          description: Presence penalty
+        frequency_penalty:
+          anyOf:
+          - type: number
+            maximum: 2.0
+            minimum: -2.0
+          - type: 'null'
+          title: Frequency Penalty
+          description: Frequency penalty
+        tools:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/Tool'
+            type: array
+          - type: 'null'
+          title: Tools
+          description: Tools for function calling
+        tool_choice:
+          anyOf:
+          - type: string
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Tool Choice
+          description: Tool selection strategy
+        user:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: User
+          description: End-user identifier
+        seed:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Seed
+          description: Random seed
+        session_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Session Id
+          description: Session ID for conversation continuity
+      type: object
+      required:
+      - model
+      - messages
+      title: ChatCompletionRequest
+      description: "Chat completion request model.\n\nPattern: Pydantic validation\
+        \ with Field validators (Sinha pp. 193-195)\n\nRequired Fields:\n    model:\
+        \ Model identifier\n    messages: List of messages in the conversation\n\n\
+        Optional Fields:\n    temperature: Sampling temperature (0-2)\n    max_tokens:\
+        \ Maximum tokens to generate\n    top_p: Nucleus sampling parameter\n    n:\
+        \ Number of completions to generate\n    stream: Whether to stream responses\n\
+        \    stop: Stop sequences\n    presence_penalty: Presence penalty (-2 to 2)\n\
+        \    frequency_penalty: Frequency penalty (-2 to 2)\n    tools: List of tools\
+        \ available for function calling\n    tool_choice: Tool selection strategy\n\
+        \    user: End-user identifier\n    seed: Random seed for reproducibility"
+    FunctionDefinition:
+      properties:
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        parameters:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Parameters
+      type: object
+      required:
+      - name
+      title: FunctionDefinition
+      description: Function definition for tool calling.
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        version:
+          type: string
+          title: Version
+      type: object
+      required:
+      - status
+      - version
+      title: HealthResponse
+      description: Health check response model.
+    Message:
+      properties:
+        role:
+          type: string
+          enum:
+          - system
+          - user
+          - assistant
+          - tool
+          title: Role
+        content:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Content
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        tool_calls:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Tool Calls
+        tool_call_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tool Call Id
+      type: object
+      required:
+      - role
+      title: Message
+      description: "Chat message model.\n\nPattern: Pydantic model with Literal type\
+        \ (Sinha p. 193)\n\nAttributes:\n    role: Message role (system, user, assistant,\
+        \ tool)\n    content: Message content (can be None for tool calls)\n    name:\
+        \ Optional name for the message author\n    tool_calls: Optional list of tool\
+        \ calls (for assistant messages)\n    tool_call_id: Optional tool call ID\
+        \ (for tool messages)"
+    ReadinessResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        checks:
+          additionalProperties:
+            type: boolean
+          type: object
+          title: Checks
+      type: object
+      required:
+      - status
+      - checks
+      title: ReadinessResponse
+      description: Readiness check response model.
+    SessionCreateRequest:
+      properties:
+        ttl_seconds:
+          anyOf:
+          - type: integer
+            minimum: 60.0
+          - type: 'null'
+          title: Ttl Seconds
+          description: Session TTL in seconds (default from settings)
+        context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Context
+          description: Initial context data for the session
+      type: object
+      title: SessionCreateRequest
+      description: "Session creation request model.\n\nWBS 2.2.3.2.1: SessionCreateRequest\
+        \ model for POST /v1/sessions.\n\nPattern: Pydantic validation (Sinha pp.\
+        \ 193-195)\nPattern: Optional[T] with None (ANTI_PATTERN \xA71.1)\n\nAttributes:\n\
+        \    ttl_seconds: Optional session TTL in seconds (uses default from settings)\n\
+        \    context: Optional initial context data"
+    SessionResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: Session ID
+        messages:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Messages
+          description: Session messages
+        context:
+          additionalProperties: true
+          type: object
+          title: Context
+          description: Session context
+        created_at:
+          type: string
+          title: Created At
+          description: Creation timestamp (ISO format)
+        expires_at:
+          type: string
+          title: Expires At
+          description: Expiration timestamp (ISO format)
+      type: object
+      required:
+      - id
+      - created_at
+      - expires_at
+      title: SessionResponse
+      description: "Session response model.\n\nWBS 2.2.3.2.2: SessionResponse model\
+        \ for session endpoints.\n\nPattern: Pydantic models (Sinha pp. 193-195)\n\
+        \nAttributes:\n    id: Unique session identifier\n    messages: List of messages\
+        \ in the session\n    context: Session context data\n    created_at: Session\
+        \ creation timestamp (ISO format)\n    expires_at: Session expiration timestamp\
+        \ (ISO format)"
+    Tool:
+      properties:
+        type:
+          type: string
+          const: function
+          title: Type
+          default: function
+        function:
+          $ref: '#/components/schemas/FunctionDefinition'
+      type: object
+      required:
+      - function
+      title: Tool
+      description: 'Tool definition for function calling.
+
+
+        Pattern: Tool calling (AI Engineering pp. 1463-1587)'
+    ToolDefinition:
+      properties:
+        name:
+          type: string
+          title: Name
+          description: Unique tool identifier
+        description:
+          type: string
+          title: Description
+          description: Tool description
+        parameters:
+          additionalProperties: true
+          type: object
+          title: Parameters
+          description: JSON Schema for tool arguments
+      type: object
+      required:
+      - name
+      - description
+      - parameters
+      title: ToolDefinition
+      description: "Tool definition for the registry.\n\nWBS 2.2.4.2.3: ToolDefinition\
+        \ model for tool registry.\n\nPattern: Service registry entry (GUIDELINES\
+        \ p. 1544)\n\nAttributes:\n    name: Unique tool identifier\n    description:\
+        \ Human-readable description\n    parameters: JSON Schema for tool arguments"
+    ToolExecuteRequest:
+      properties:
+        name:
+          type: string
+          title: Name
+          description: Tool name to execute
+        arguments:
+          additionalProperties: true
+          type: object
+          title: Arguments
+          description: Tool arguments
+      type: object
+      required:
+      - name
+      title: ToolExecuteRequest
+      description: "Tool execution request model.\n\nWBS 2.2.4.2.1: ToolExecuteRequest\
+        \ model.\n\nPattern: Command pattern input (Buelta p. 219)\n\nAttributes:\n\
+        \    name: Tool name to execute\n    arguments: Tool arguments (validated\
+        \ against tool schema)"
+    ToolExecuteResponse:
+      properties:
+        name:
+          type: string
+          title: Name
+          description: Tool name
+        result:
+          anyOf:
+          - {}
+          - type: 'null'
+          title: Result
+          description: Execution result
+        success:
+          type: boolean
+          title: Success
+          description: Whether execution succeeded
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+          description: Error message if failed
+      type: object
+      required:
+      - name
+      - success
+      title: ToolExecuteResponse
+      description: "Tool execution response model.\n\nWBS 2.2.4.2.2: ToolExecuteResponse\
+        \ model.\n\nPattern: Command pattern output (Buelta p. 219)\n\nAttributes:\n\
+        \    name: Tool name that was executed\n    result: Tool execution result\
+        \ (can be any JSON-serializable value)\n    success: Whether execution succeeded\n\
+        \    error: Error message if execution failed"
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

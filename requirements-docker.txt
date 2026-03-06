@@ -1,0 +1,40 @@
+# ==============================================================================
+# LLM Gateway - Docker Dependencies
+# ==============================================================================
+# Minimal dependencies for Docker deployment.
+# Excludes llama-cpp-python which requires native compilation and Metal GPU.
+# Docker deployment uses external inference-service for LLM inference.
+#
+# For local development with Metal GPU: pip install -r requirements.txt
+# For Docker: pip install -r requirements-docker.txt
+# ==============================================================================
+
+# Core Framework
+fastapi~=0.115.0
+uvicorn[standard]~=0.32.0
+pydantic~=2.10.0
+pydantic-settings~=2.6.0  # Required for BaseSettings (moved from pydantic core in v2)
+
+# HTTP Client
+httpx~=0.28.0
+
+# Redis (Session Storage)
+redis~=5.2.0
+
+# LLM Provider SDKs
+anthropic~=0.72.0
+openai~=1.56.0
+
+# NOTE: llama-cpp-python excluded for Docker builds
+# Docker deployment uses inference-service:8085 for local LLM inference
+# See: Kitchen Brigade Architecture - inference-service is the Line Cook
+
+# Observability
+structlog~=24.4.0
+prometheus-client~=0.21.0
+
+# OpenTelemetry (Tracing)
+opentelemetry-api~=1.28.0
+opentelemetry-sdk~=1.28.0
+opentelemetry-instrumentation-fastapi~=0.49b0
+opentelemetry-exporter-otlp-proto-grpc~=1.28.0

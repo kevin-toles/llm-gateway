@@ -1,0 +1,45 @@
+# ==============================================================================
+# LLM Gateway - Production Dependencies
+# ==============================================================================
+# Issue 22 Fix (Comp_Static_Analysis_Report_20251203.md):
+# Dependencies pinned with ~= (compatible release) for reproducible builds
+# ~= allows patch updates but not minor/major changes (PEP 440)
+# Example: ~=0.104.0 allows 0.104.x but not 0.105.0
+#
+# To regenerate exact pins: pip freeze > requirements.lock
+# See docs/DEPLOYMENT_IMPLEMENTATION_PLAN.md Section 1.6 for full list
+# ==============================================================================
+
+# Core Framework
+fastapi~=0.115.0
+uvicorn[standard]~=0.32.0
+pydantic~=2.10.0
+pydantic-settings~=2.6.0  # Required for BaseSettings (moved from pydantic core in v2)
+
+# HTTP Client
+httpx~=0.28.0
+
+# Redis (Session Storage)
+redis~=5.2.0
+
+# LLM Provider SDKs
+anthropic~=0.72.0
+openai~=1.56.0
+
+# Local LLM Inference (optional - for Kitchen Brigade Scenario #2)
+# Install with Metal support: CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python
+llama-cpp-python~=0.3.0
+
+# Observability
+structlog~=24.4.0
+prometheus-client~=0.21.0
+
+# OpenTelemetry (Tracing)
+opentelemetry-api~=1.28.0
+opentelemetry-sdk~=1.28.0
+opentelemetry-instrumentation-fastapi~=0.49b0
+opentelemetry-exporter-otlp-proto-grpc~=1.28.0  # Issue 36: OTLP GRPC exporter for distributed tracing
+
+# AI Platform Common (service discovery)
+# Provides infrastructure-aware URL resolution for docker/hybrid/native modes
+-e file:///Users/kevintoles/POC/ai-platform-data/ai_platform_common
