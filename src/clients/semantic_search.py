@@ -4,8 +4,8 @@ Semantic Search Client - WBS 2.7.1.2
 This module provides a client for the semantic-search microservice.
 
 Reference Documents:
-- ARCHITECTURE.md: Line 52 - semantic_search.py "Proxy to semantic-search-service"
-- ARCHITECTURE.md: Line 232 - semantic-search-service dependency
+- ARCHITECTURE.md: Line 52 - semantic_search.py "Proxy to unified-search-service"
+- ARCHITECTURE.md: Line 232 - unified-search-service dependency
 - ARCHITECTURE.md: Line 277 - semantic_search_url configuration
 - GUIDELINES pp. 2309: Connection pooling per downstream service
 
@@ -104,7 +104,7 @@ class SemanticSearchClient:
     - Retrieve specific chunks (WBS 2.7.1.2.5)
 
     Pattern: Client adapter for microservice communication
-    Reference: ARCHITECTURE.md Line 232 - semantic-search-service dependency
+    Reference: ARCHITECTURE.md Line 232 - unified-search-service dependency
 
     Example:
         >>> client = SemanticSearchClient(base_url="http://localhost:8081")
@@ -123,7 +123,7 @@ class SemanticSearchClient:
         Initialize SemanticSearchClient.
 
         Args:
-            base_url: Base URL for semantic-search-service
+            base_url: Base URL for unified-search-service
             http_client: Optional pre-configured HTTP client (for testing)
             timeout_seconds: Request timeout in seconds
         """

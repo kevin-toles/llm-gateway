@@ -15,8 +15,8 @@ Anti-Patterns Avoided:
 - ANTI_PATTERN_ANALYSIS §4.1: Cognitive complexity < 15 per function
 
 WBS 3.2.2: Search Tool Integration
-- 3.2.2.1: search_corpus tool registered and wired to semantic-search-service
-- 3.2.2.2: get_chunk tool registered and wired to semantic-search-service
+- 3.2.2.1: search_corpus tool registered and wired to unified-search-service
+- 3.2.2.2: get_chunk tool registered and wired to unified-search-service
 """
 
 import asyncio
@@ -126,7 +126,7 @@ async def search_corpus_wrapper(
         collection: Collection to search (default: 'documents').
 
     Returns:
-        Search results from semantic-search-service.
+        Search results from unified-search-service.
     """
     args = {"query": query, "top_k": top_k, "collection": collection}
     return await search_corpus(args)
@@ -142,7 +142,7 @@ async def get_chunk_wrapper(chunk_id: str) -> dict[str, Any]:
         chunk_id: The unique identifier of the chunk.
 
     Returns:
-        Chunk data from semantic-search-service.
+        Chunk data from unified-search-service.
     """
     args = {"chunk_id": chunk_id}
     return await get_chunk(args)
@@ -362,7 +362,7 @@ BUILTIN_TOOLS: dict[str, tuple[ToolDefinition, ToolFunction]] = {
     ),
     # =========================================================================
     # WBS 3.2.2.1: Semantic Search Tool
-    # Pattern: Service proxy (proxies to semantic-search-service)
+    # Pattern: Service proxy (proxies to unified-search-service)
     # =========================================================================
     "search_corpus": (
         ToolDefinition(
@@ -394,7 +394,7 @@ BUILTIN_TOOLS: dict[str, tuple[ToolDefinition, ToolFunction]] = {
     ),
     # =========================================================================
     # WBS 3.2.2.2: Chunk Retrieval Tool
-    # Pattern: Service proxy (proxies to semantic-search-service)
+    # Pattern: Service proxy (proxies to unified-search-service)
     # =========================================================================
     "get_chunk": (
         ToolDefinition(

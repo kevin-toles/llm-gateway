@@ -2,11 +2,11 @@
 Chunk Retrieval Tool - WBS 2.4.3.2 Chunk Retrieval Tool
 
 This module implements the get_chunk tool that retrieves individual document
-chunks from the semantic-search-service.
+chunks from the unified-search-service.
 
 Reference Documents:
 - ARCHITECTURE.md Line 53: chunk_retrieval.py "Document chunk retrieval"
-- ARCHITECTURE.md Line 232: semantic-search-service dependency
+- ARCHITECTURE.md Line 232: unified-search-service dependency
 - GUIDELINES pp. 1440: Async retrieval pipelines
 - WBS 3.2.3: Error handling and resilience with circuit breaker
 
@@ -39,7 +39,7 @@ def get_chunk_circuit_breaker():
     Get the circuit breaker for chunk retrieval.
     
     WBS 3.2.3.1.5: Uses the same circuit breaker as search_corpus
-    since both use the semantic-search-service.
+    since both use the unified-search-service.
     """
     return get_semantic_search_circuit_breaker()
 
@@ -116,7 +116,7 @@ async def get_chunk(args: dict[str, Any]) -> dict[str, Any]:
 
     WBS 2.4.3.2.2: Implement get_chunk tool function.
     WBS 2.4.3.2.3: Accept chunk_id parameter.
-    WBS 2.4.3.2.4: Call semantic-search-service to retrieve chunk.
+    WBS 2.4.3.2.4: Call unified-search-service to retrieve chunk.
     WBS 2.4.3.2.5: Return chunk text and metadata.
     WBS 2.4.3.2.6: Handle not found errors.
     WBS 3.2.3.1: Circuit breaker integration for resilience.
@@ -160,7 +160,7 @@ async def get_chunk(args: dict[str, Any]) -> dict[str, Any]:
         return result
 
     except CircuitOpenError as e:
-        logger.warning(f"Circuit breaker open for semantic-search-service: {e}")
+        logger.warning(f"Circuit breaker open for unified-search-service: {e}")
         raise ChunkServiceError(
             "Chunk service circuit open - failing fast"
         ) from e

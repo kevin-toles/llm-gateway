@@ -2,11 +2,11 @@
 Semantic Search Tool - WBS 2.4.3.1 Semantic Search Tool
 
 This module implements the search_corpus tool that proxies search requests
-to the semantic-search-service.
+to the unified-search-service.
 
 Reference Documents:
-- ARCHITECTURE.md Line 52: semantic_search.py "Proxy to semantic-search-service"
-- ARCHITECTURE.md Line 232: semantic-search-service dependency
+- ARCHITECTURE.md Line 52: semantic_search.py "Proxy to unified-search-service"
+- ARCHITECTURE.md Line 232: unified-search-service dependency
 - GUIDELINES pp. 1391: RAG systems and retrieval patterns
 - GUIDELINES pp. 1440: Async retrieval pipelines
 - WBS 3.2.3: Error handling and resilience with circuit breaker
@@ -38,7 +38,7 @@ _semantic_search_circuit_breaker: Optional[CircuitBreaker] = None
 
 def get_semantic_search_circuit_breaker() -> CircuitBreaker:
     """
-    Get the shared circuit breaker for semantic-search-service.
+    Get the shared circuit breaker for unified-search-service.
     
     WBS 3.2.3.1.5: Shared circuit breaker for all semantic search operations.
     
@@ -51,7 +51,7 @@ def get_semantic_search_circuit_breaker() -> CircuitBreaker:
         _semantic_search_circuit_breaker = CircuitBreaker(
             failure_threshold=settings.circuit_breaker_failure_threshold,
             recovery_timeout_seconds=settings.circuit_breaker_recovery_timeout_seconds,
-            name="semantic-search-service",
+            name="unified-search-service",
         )
     return _semantic_search_circuit_breaker
 
@@ -131,7 +131,7 @@ async def search_corpus(args: dict[str, Any]) -> dict[str, Any]:
 
     WBS 2.4.3.1.3: Implement search_corpus tool function.
     WBS 2.4.3.1.4: Accept query, top_k, collection parameters.
-    WBS 2.4.3.1.5: Call semantic-search-service /v1/search endpoint.
+    WBS 2.4.3.1.5: Call unified-search-service /v1/search endpoint.
     WBS 2.4.3.1.6: Return search results as structured data.
     WBS 2.4.3.1.7: Handle service unavailable errors.
     WBS 3.2.3.1: Circuit breaker integration for resilience.
@@ -162,7 +162,7 @@ async def search_corpus(args: dict[str, Any]) -> dict[str, Any]:
     top_k = args.get("top_k", 10)
     collection = args.get("collection", "documents")  # Fixed: default to "documents"
 
-    # Build request payload - map to semantic-search-service schema
+    # Build request payload - map to unified-search-service schema
     payload = {
         "query": query,
         "limit": top_k,  # Fixed: semantic-search uses "limit" not "top_k"
@@ -182,7 +182,7 @@ async def search_corpus(args: dict[str, Any]) -> dict[str, Any]:
         return result
 
     except CircuitOpenError as e:
-        logger.warning(f"Circuit breaker open for semantic-search-service: {e}")
+        logger.warning(f"Circuit breaker open for unified-search-service: {e}")
         raise SearchServiceError(
             "Semantic search service circuit open - failing fast"
         ) from e

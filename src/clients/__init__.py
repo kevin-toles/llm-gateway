@@ -5,7 +5,7 @@ This package provides HTTP client factories, service clients, and
 resilience patterns for communicating with downstream microservices.
 
 Reference Documents:
-- ARCHITECTURE.md: Lines 232 - semantic-search-service dependency
+- ARCHITECTURE.md: Lines 232 - unified-search-service dependency
 - ARCHITECTURE.md: Lines 277 - semantic_search_url configuration
 - GUIDELINES pp. 2309: Connection pooling per downstream service
 - GUIDELINES pp. 2145: Graceful degradation, circuit breaker patterns

@@ -2,11 +2,11 @@
 Embed Tool - WBS-CPA6 Gateway Tool Invocation
 
 This module implements the embed tool that proxies embedding requests
-to the semantic-search-service for external clients.
+to the unified-search-service for external clients.
 
 Reference Documents:
 - CONSOLIDATED_PLATFORM_ARCHITECTURE_WBS.md: WBS-CPA6 Gateway Tool Invocation
-- semantic-search-service/src/api/embeddings.py: /v1/embeddings endpoint
+- unified-search-service/src/api/embeddings.py: /v1/embeddings endpoint
 - CODING_PATTERNS_ANALYSIS.md: Anti-patterns to avoid
 
 Communication Pattern:
@@ -88,7 +88,7 @@ class EmbedServiceError(Exception):
 
 EMBED_DEFINITION = ToolDefinition(
     name=TOOL_NAME_EMBED,
-    description="Generate embedding vectors for texts using semantic-search-service. "
+    description="Generate embedding vectors for texts using unified-search-service. "
     "Returns dense vectors suitable for semantic similarity calculations, "
     "clustering, or vector database storage. "
     "Use this for external embedding generation via the Gateway.",
@@ -118,7 +118,7 @@ EMBED_DEFINITION = ToolDefinition(
 
 async def _do_embed_request(payload: dict[str, Any]) -> dict[str, Any]:
     """
-    Internal function to perform HTTP request to semantic-search-service.
+    Internal function to perform HTTP request to unified-search-service.
     
     Separated for circuit breaker wrapping.
     
@@ -148,10 +148,10 @@ async def _do_embed_request(payload: dict[str, Any]) -> dict[str, Any]:
 
 async def embed(params: dict[str, Any]) -> dict[str, Any]:
     """
-    Generate embeddings for texts via semantic-search-service.
+    Generate embeddings for texts via unified-search-service.
     
     WBS-CPA6.2: External clients access this tool via Gateway.
-    Routes requests to semantic-search-service /v1/embeddings endpoint.
+    Routes requests to unified-search-service /v1/embeddings endpoint.
     
     Args:
         params: Dictionary with:
@@ -166,7 +166,7 @@ async def embed(params: dict[str, Any]) -> dict[str, Any]:
             - processing_time_ms (float): Processing time (optional).
     
     Raises:
-        EmbedServiceError: If semantic-search-service is unavailable.
+        EmbedServiceError: If unified-search-service is unavailable.
     """
     texts = params.get("texts", [])
     model = params.get("model", "all-MiniLM-L6-v2")

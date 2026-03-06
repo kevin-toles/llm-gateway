@@ -3,12 +3,12 @@ Built-in Tools Package - WBS 2.4.3 Built-in Tools
 
 This package provides built-in tools for the LLM Gateway, including
 semantic search, chunk retrieval, and cross-reference tools that proxy
-to the semantic-search-service and ai-agents service.
+to the unified-search-service and ai-agents service.
 
 Reference Documents:
 - ARCHITECTURE.md Lines 50-53: builtin/semantic_search.py, chunk_retrieval.py
 - ARCHITECTURE.md Line 82: ai-agents-service dependency (ai_agents_url)
-- ARCHITECTURE.md Line 232: semantic-search-service dependency
+- ARCHITECTURE.md Line 232: unified-search-service dependency
 - GUIDELINES pp. 1391-1440: RAG patterns
 - TIER_RELATIONSHIP_DIAGRAM.md: Spider Web Model taxonomy
 """
@@ -66,13 +66,13 @@ def register_builtin_tools(registry: ToolRegistry) -> None:
     Args:
         registry: The ToolRegistry to register tools with.
     """
-    # Register search_corpus (semantic-search-service proxy)
+    # Register search_corpus (unified-search-service proxy)
     registry.register(
         "search_corpus",
         RegisteredTool(definition=SEARCH_CORPUS_DEFINITION, handler=search_corpus),
     )
 
-    # Register get_chunk (semantic-search-service proxy)
+    # Register get_chunk (unified-search-service proxy)
     registry.register(
         "get_chunk",
         RegisteredTool(definition=GET_CHUNK_DEFINITION, handler=get_chunk),
@@ -92,7 +92,7 @@ def register_builtin_tools(registry: ToolRegistry) -> None:
         RegisteredTool(definition=ENRICH_METADATA_DEFINITION, handler=enrich_metadata),
     )
 
-    # Register hybrid_search (semantic-search-service proxy)
+    # Register hybrid_search (unified-search-service proxy)
     # WBS-CPA1: Gateway external tool exposure for MCP/external LLMs
     registry.register(
         "hybrid_search",
@@ -123,10 +123,10 @@ def register_builtin_tools(registry: ToolRegistry) -> None:
 
     # =========================================================================
     # WBS-CPA6: Embed Tool for External Clients
-    # Routes to semantic-search-service /v1/embeddings
+    # Routes to unified-search-service /v1/embeddings
     # =========================================================================
     
-    # Register embed (semantic-search-service proxy)
+    # Register embed (unified-search-service proxy)
     registry.register(
         "embed",
         RegisteredTool(definition=EMBED_DEFINITION, handler=embed),

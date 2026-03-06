@@ -2,12 +2,12 @@
 Hybrid Search Tool - WBS-CPA1.4 Hybrid Search Tool
 
 This module implements the hybrid_search tool that proxies hybrid search requests
-to the semantic-search-service's /v1/search/hybrid endpoint.
+to the unified-search-service's /v1/search/hybrid endpoint.
 
 Reference Documents:
 - CONSOLIDATED_PLATFORM_ARCHITECTURE_WBS.md: WBS-CPA1 Gateway External Tool Exposure
 - CONSOLIDATED_PLATFORM_ARCHITECTURE.md: Kitchen Brigade Architecture
-- semantic-search-service/src/api/routes.py: /v1/search/hybrid endpoint
+- unified-search-service/src/api/routes.py: /v1/search/hybrid endpoint
 - CODING_PATTERNS_ANALYSIS.md: Anti-patterns to avoid
 
 Pattern: Service Proxy (proxies to external microservice)
@@ -49,7 +49,7 @@ _hybrid_search_circuit_breaker: Optional[CircuitBreaker] = None
 
 def get_hybrid_search_circuit_breaker() -> CircuitBreaker:
     """
-    Get the shared circuit breaker for semantic-search-service hybrid endpoint.
+    Get the shared circuit breaker for unified-search-service hybrid endpoint.
     
     WBS-CPA1.4: Shared circuit breaker for all hybrid search operations.
     
@@ -168,7 +168,7 @@ async def _do_hybrid_search(
     Separated for circuit breaker wrapping.
     
     Args:
-        base_url: Base URL of semantic-search-service.
+        base_url: Base URL of unified-search-service.
         payload: Request payload matching HybridSearchRequest schema.
         timeout_seconds: Request timeout.
         
@@ -197,8 +197,8 @@ async def hybrid_search(args: dict[str, Any]) -> dict[str, Any]:
     WBS-TXS5: Add bloom_tier_filter, quality_tier_filter, bloom_tier_boost params.
     
     This tool proxies requests from external clients (MCP, external LLMs) through
-    the Gateway to the semantic-search-service. Internal platform services call
-    semantic-search-service directly.
+    the Gateway to the unified-search-service. Internal platform services call
+    unified-search-service directly.
 
     Args:
         args: Dictionary containing:
