@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 
 # Model context limits for tier calculation
 MODEL_CONTEXT_LIMITS = {
-    "qwen3-8b": 8192,
+    "qwen3.5-9b": 8192,
     "codellama-7b": 16384,
     "deepseek-coder-v2-lite": 131072,
     "llama-3.2-3b": 8192,
@@ -341,7 +341,7 @@ class TestFastEstimation:
         
         # Different models may estimate differently
         est_gpt4 = estimate_tokens_fast(text, model="gpt-4")
-        est_qwen = estimate_tokens_fast(text, model="qwen3-8b")
+        est_qwen = estimate_tokens_fast(text, model="qwen3.5-9b")
         
         # Both should be reasonable estimates
         assert 5 <= est_gpt4 <= 20
@@ -395,7 +395,7 @@ class TestGetContextLimit:
         """Get context limit for known models."""
         from src.api.routes.cms_routing import get_context_limit
         
-        assert get_context_limit("qwen3-8b") == 8192
+        assert get_context_limit("qwen3.5-9b") == 8192
         assert get_context_limit("codellama-7b") == 16384
         assert get_context_limit("deepseek-coder-v2-lite") == 131072
     
@@ -442,7 +442,7 @@ class TestChatEndpointCMSIntegration:
             id="chatcmpl-test123",
             object="chat.completion",
             created=1234567890,
-            model="qwen3-8b",
+            model="qwen3.5-9b",
             choices=[MagicMock(
                 index=0,
                 message=MagicMock(role="assistant", content="Hello! I'm a test response."),
@@ -453,7 +453,7 @@ class TestChatEndpointCMSIntegration:
                 "id": "chatcmpl-test123",
                 "object": "chat.completion",
                 "created": 1234567890,
-                "model": "qwen3-8b",
+                "model": "qwen3.5-9b",
                 "choices": [{
                     "index": 0,
                     "message": {"role": "assistant", "content": "Hello! I'm a test response."},
@@ -483,7 +483,7 @@ class TestChatEndpointCMSIntegration:
     def test_chat_includes_cms_headers(self, client, mock_cms_client, mock_chat_service):
         """Chat response should include CMS headers."""
         payload = {
-            "model": "qwen3-8b",
+            "model": "qwen3.5-9b",
             "messages": [{"role": "user", "content": "Hello"}],
         }
         
@@ -496,7 +496,7 @@ class TestChatEndpointCMSIntegration:
     def test_tier_1_bypasses_cms(self, client, mock_cms_client, mock_chat_service):
         """Tier 1 requests should bypass CMS."""
         payload = {
-            "model": "qwen3-8b",
+            "model": "qwen3.5-9b",
             "messages": [{"role": "user", "content": "Hi"}],
         }
         
@@ -509,7 +509,7 @@ class TestChatEndpointCMSIntegration:
     def test_explicit_mode_none_bypasses_cms(self, client, mock_cms_client, mock_chat_service):
         """X-CMS-Mode: none should bypass CMS."""
         payload = {
-            "model": "qwen3-8b",
+            "model": "qwen3.5-9b",
             "messages": [{"role": "user", "content": "A" * 5000}],  # Large message
         }
         
@@ -538,7 +538,7 @@ class TestChatEndpointCMSIntegration:
                 "id": "chatcmpl-test123",
                 "object": "chat.completion",
                 "created": 1234567890,
-                "model": "qwen3-8b",
+                "model": "qwen3.5-9b",
                 "choices": [{
                     "index": 0,
                     "message": {"role": "assistant", "content": "Test response."},
@@ -555,7 +555,7 @@ class TestChatEndpointCMSIntegration:
         
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             payload = {
-                "model": "qwen3-8b",
+                "model": "qwen3.5-9b",
                 "messages": [{"role": "user", "content": "A" * 20000}],  # ~5000 tokens
             }
             response = await ac.post("/v1/chat/completions", json=payload)
@@ -585,7 +585,7 @@ class TestChatEndpointCMSIntegration:
         
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             payload = {
-                "model": "qwen3-8b",
+                "model": "qwen3.5-9b",
                 "messages": [{"role": "user", "content": "A" * 30000}],  # ~7500 tokens (Tier 4)
             }
             response = await ac.post("/v1/chat/completions", json=payload)

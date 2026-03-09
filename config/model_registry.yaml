@@ -30,7 +30,7 @@ providers:
       # Primary/General Purpose
       - phi-4
       - qwen2.5-7b
-      - qwen3-8b
+      - qwen3.5-9b
       - llama-3.2-3b
       - gpt-oss-20b
       

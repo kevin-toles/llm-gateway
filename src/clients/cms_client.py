@@ -95,7 +95,7 @@ class CMSClient:
     
     Usage:
         async with CMSClient("http://localhost:8086") as client:
-            result = await client.process("long text...", model="qwen3-8b")
+            result = await client.process("long text...", model="qwen3.5-9b")
     """
     
     def __init__(
@@ -173,7 +173,7 @@ class CMSClient:
         
         Args:
             text: The text to process
-            model: Target model (e.g., "qwen3-8b")
+            model: Target model (e.g., "qwen3.5-9b")
             conversation_id: Optional conversation ID for glossary
             optimization_config: Optional optimization configuration
             validate_fidelity: Whether to validate semantic fidelity
