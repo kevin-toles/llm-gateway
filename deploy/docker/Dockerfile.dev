@@ -1,0 +1,39 @@
+# ==============================================================================
+# LLM Gateway - Development Dockerfile
+# ==============================================================================
+# Development build with hot-reload support
+# See docs/DEPLOYMENT_IMPLEMENTATION_PLAN.md Section 1.2.2 for implementation
+# ==============================================================================
+
+FROM python:3.11-slim-bookworm
+
+# Environment variables for development
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src \
+    LLM_GATEWAY_ENV=development \
+    LLM_GATEWAY_PORT=8080 \
+    LLM_GATEWAY_LOG_LEVEL=DEBUG
+
+# Install development dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python dependencies with dev extras
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt -r requirements-dev.txt
+
+# Copy application (will be overridden by volume mount in dev)
+COPY . .
+
+# Expose port
+EXPOSE 8080
+
+# Hot-reload enabled with --reload flag
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload"]

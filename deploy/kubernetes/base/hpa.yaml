@@ -1,0 +1,90 @@
+# =============================================================================
+# LLM Gateway Horizontal Pod Autoscaler
+# =============================================================================
+# Automatically scales the deployment based on CPU and memory utilization.
+# Uses autoscaling/v2 API for advanced features like multiple metrics and
+# custom scale behaviors.
+# =============================================================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: llm-gateway
+  namespace: llm-services
+  labels:
+    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: llm-document-enhancement
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # ===========================================================================
+  # Scale Target Reference
+  # ===========================================================================
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: llm-gateway
+  
+  # ===========================================================================
+  # Replica Bounds
+  # ===========================================================================
+  minReplicas: 2
+  maxReplicas: 10
+  
+  # ===========================================================================
+  # Metrics for Scaling Decisions
+  # ===========================================================================
+  metrics:
+    # CPU Utilization - Scale when average CPU exceeds 70%
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    
+    # Memory Utilization - Scale when average memory exceeds 80%
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  
+  # ===========================================================================
+  # Scaling Behavior
+  # ===========================================================================
+  behavior:
+    # -------------------------------------------------------------------------
+    # Scale Down Behavior (Conservative)
+    # -------------------------------------------------------------------------
+    # Be conservative when scaling down to avoid flapping
+    scaleDown:
+      stabilizationWindowSeconds: 300  # 5 minutes stabilization
+      policies:
+        # Scale down at most 1 pod at a time
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+        # Or scale down at most 10% of pods
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+      selectPolicy: Min  # Use the most conservative policy
+    
+    # -------------------------------------------------------------------------
+    # Scale Up Behavior (Aggressive)
+    # -------------------------------------------------------------------------
+    # Scale up quickly to handle traffic spikes
+    scaleUp:
+      stabilizationWindowSeconds: 0  # No stabilization - scale immediately
+      policies:
+        # Scale up at most 4 pods at a time
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+        # Or scale up at most 100% of current pods
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+      selectPolicy: Max  # Use the most aggressive policy
