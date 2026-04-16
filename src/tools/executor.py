@@ -290,16 +290,19 @@ class ToolExecutor:
         self, tool_calls: list[ToolCall]
     ) -> list[ToolResult]:
         """
-        Execute multiple tool calls concurrently.
+        Execute multiple tool calls with read/write partitioning.
 
         WBS 2.4.2.2.1: Implement execute_batch(tool_calls) -> list[ToolResult].
         WBS 2.4.2.2.2: Execute tools concurrently with asyncio.gather.
         WBS 2.4.2.2.3: Preserve order of results.
         WBS 2.4.2.2.4: Handle partial failures.
+        ENG-3: Partition readonly (read) tools for concurrent execution;
+               non-readonly (write) tools execute serially after all reads.
 
-        All tool calls are executed in parallel using asyncio.gather.
-        Results are returned in the same order as input tool_calls.
-        Failures in individual tools don't affect other executions.
+        Read-only tools are safe to run in parallel — they don't mutate state.
+        Write tools must run one at a time to avoid race conditions.
+        Reads run first (as a batch), then writes run sequentially.
+        Results are returned in the same order as the input tool_calls.
 
         Args:
             tool_calls: List of ToolCalls to execute.
@@ -310,30 +313,54 @@ class ToolExecutor:
         if not tool_calls:
             return []
 
-        # Execute all concurrently, wrapping errors in ToolResult
         async def safe_execute(tool_call: ToolCall) -> ToolResult:
             """Execute a single tool call, catching validation errors."""
             try:
                 return await self.execute(tool_call)
             except ToolExecutionError as e:
-                # ToolValidationError inherits from ToolExecutionError, so this catches both
                 return ToolResult(
                     tool_call_id=tool_call.id,
                     content=f"Tool error: {e}",
                     is_error=True,
                 )
 
-        # WBS 2.4.2.2.2: Concurrent execution with gather
-        results = await asyncio.gather(
-            *[safe_execute(tc) for tc in tool_calls],
-            return_exceptions=False,  # We handle exceptions in safe_execute
-        )
+        # Partition into readonly (parallel) and write (serial) groups,
+        # preserving original index so we can reconstruct call order.
+        read_indices: list[int] = []
+        write_indices: list[int] = []
 
-        return list(results)
+        for i, tc in enumerate(tool_calls):
+            try:
+                tool = self.registry.get(tc.name)
+                is_readonly = tool.definition.readonly
+            except (KeyError, AttributeError):
+                # Unknown tool or definition without readonly → treat as read
+                # (safe default; execute() will raise ToolValidationError)
+                is_readonly = True
 
+            if is_readonly:
+                read_indices.append(i)
+            else:
+                write_indices.append(i)
 
-# =============================================================================
-# Singleton Access
+        # Allocate results slice (filled by position)
+        results: list[ToolResult | None] = [None] * len(tool_calls)
+
+        # Phase 1: Run all readonly tools concurrently
+        if read_indices:
+            read_calls = [tool_calls[i] for i in read_indices]
+            read_results = await asyncio.gather(
+                *[safe_execute(tc) for tc in read_calls],
+                return_exceptions=False,
+            )
+            for idx, result in zip(read_indices, read_results):
+                results[idx] = result
+
+        # Phase 2: Run write tools serially
+        for i in write_indices:
+            results[i] = await safe_execute(tool_calls[i])
+
+        return [r for r in results if r is not None]  # type: ignore[return-value]
 # =============================================================================
 
 _executor: Optional[ToolExecutor] = None

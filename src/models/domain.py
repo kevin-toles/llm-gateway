@@ -73,6 +73,14 @@ class ToolDefinition(BaseModel):
     parameters: dict[str, Any] = Field(
         ..., description="JSON Schema for input parameters"
     )
+    readonly: bool = Field(
+        default=True,
+        description=(
+            "True if the tool only reads data (safe for concurrent execution). "
+            "False for tools that mutate state (serialized execution). "
+            "Default True: opt-in mutability for maximum safety."
+        ),
+    )
 
     model_config = {"frozen": True}  # Value object: immutable
 
