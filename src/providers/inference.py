@@ -167,9 +167,11 @@ class InferenceServiceProvider(LLMProvider):
             ChatCompletionResponse from inference service (via CMS or direct)
         """
         # Convert request to dict for JSON payload
+        # exclude_none=True prevents null fields (name, tool_calls, tool_call_id)
+        # from being sent to llama.cpp which rejects null-typed fields (type_error.302)
         payload = {
             "model": request.model,
-            "messages": [m.model_dump() for m in request.messages],
+            "messages": [m.model_dump(exclude_none=True) for m in request.messages],
         }
         
         # Add optional parameters if present
@@ -219,7 +221,7 @@ class InferenceServiceProvider(LLMProvider):
         """
         payload = {
             "model": request.model,
-            "messages": [m.model_dump() for m in request.messages],
+            "messages": [m.model_dump(exclude_none=True) for m in request.messages],
             "stream": True,
         }
         

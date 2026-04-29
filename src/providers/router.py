@@ -396,6 +396,21 @@ def _register_deepseek(settings: "Settings", providers: dict[str, LLMProvider]) 
         logger.warning(f"Could not initialize DeepSeek provider: {e}")
 
 
+def _register_qwen(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
+    """Register Qwen provider (Alibaba Cloud DashScope) if API key is available."""
+    if settings.qwen_api_key is None:
+        return
+    qwen_key = settings.qwen_api_key.get_secret_value()
+    if not qwen_key:
+        return
+    try:
+        from src.providers.qwen import QwenProvider
+        providers["qwen"] = QwenProvider(api_key=qwen_key)
+        logger.info("Qwen provider registered (DashScope API)")
+    except Exception as e:
+        logger.warning(f"Could not initialize Qwen provider: {e}")
+
+
 def _register_gemini(settings: "Settings", providers: dict[str, LLMProvider]) -> None:
     """Register Gemini provider if API key is available."""
     if settings.gemini_api_key is None:
@@ -461,16 +476,17 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
     """
     providers: dict[str, LLMProvider] = {}
 
-    # NOTE: Inference provider is NOT registered in the gateway.
-    # Local models are managed by CMS (Context Management Service).
-    # Gateway only handles external/cloud model routing.
-    # See: config/model_registry.yaml for the canonical model registry.
-    
+    # Hybrid mode: inference provider registered directly (INFERENCE_SERVICE_URL=http://localhost:8085).
+    # In Docker mode, local models route through CMS proxy instead.
+    # In hybrid mode (platform services on bare metal), route directly to inference-service.
+    _register_inference(settings, providers)
+
     # Cloud providers
     _register_openai(settings, providers)
     _register_anthropic(settings, providers)
     _register_deepseek(settings, providers)
     _register_gemini(settings, providers)
+    _register_qwen(settings, providers)
     
     # OpenRouter - only for explicit requests
     _register_openrouter(settings, providers)

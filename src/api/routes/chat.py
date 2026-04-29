@@ -255,7 +255,18 @@ async def create_chat_completion(
 
         # Issue 27: Real ChatService uses complete(), not create_completion()
         response = await chat_service.complete(request)
-        
+
+        # P1-05: Platform token counter (ai_platform_llm_tokens_total)
+        if response.usage:
+            from src.ai_platform_metrics import LLM_TOKENS_TOTAL
+            _model = getattr(response, "model", request.model)
+            LLM_TOKENS_TOTAL.labels(
+                service="llm-gateway", model=_model, direction="input"
+            ).inc(response.usage.prompt_tokens)
+            LLM_TOKENS_TOTAL.labels(
+                service="llm-gateway", model=_model, direction="output"
+            ).inc(response.usage.completion_tokens)
+
         # Wrap response in JSONResponse to add CMS headers
         return JSONResponse(
             content=response.model_dump(),

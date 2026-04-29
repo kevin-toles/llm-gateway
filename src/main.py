@@ -27,6 +27,12 @@ from src.observability import (
     get_metrics_app,
     get_logger,
 )
+
+# P4-07: configure_otel() — idempotent OTel init with FastAPIInstrumentor
+from src.middleware.tracing import configure_otel
+
+# P1-03: Platform-standard MetricsMiddleware (ai_platform_* metric names)
+from src.middleware.metrics import MetricsMiddleware as PlatformMetricsMiddleware
 from src.core.config import get_settings
 
 # Import routers - WBS 2.1.1.1.4, 2.2.1, 2.2.2, 2.2.3, 2.2.4, 2.2.5
@@ -113,6 +119,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "OpenTelemetry tracing initialized",
             extra={"otlp_endpoint": settings.otlp_endpoint or "console"}
         )
+
+    # P4-07: configure_otel() — env-var-driven, idempotent, FastAPIInstrumentor
+    configure_otel(service_name="llm-gateway", app=app)
     
     # Initialize app state - WBS 2.1.1.2.7
     app.state.initialized = True
@@ -201,6 +210,13 @@ app.add_middleware(
 app.add_middleware(
     MetricsMiddleware,
     exclude_paths=[METRICS_PATH],
+)
+
+# P1-04: Platform-standard MetricsMiddleware (ai_platform_* names for fleet dashboards)
+app.add_middleware(
+    PlatformMetricsMiddleware,
+    service_name="llm-gateway",
+    exclude_paths=[METRICS_PATH, "/health", "/"],
 )
 
 # WBS-PS5: Memory tracking and backpressure middleware

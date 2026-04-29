@@ -218,8 +218,13 @@ class Settings(BaseSettings):
     )
     openrouter_api_key: SecretStr = Field(
         default=SecretStr(""),
-        description="OpenRouter API key for Qwen and other models (POC for local LLMs)",
+        description="OpenRouter API key for fallback models (POC for local LLMs)",
         validation_alias="OPENROUTER_API_KEY",
+    )
+    qwen_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="Qwen DashScope API key for Qwen models (Alibaba Cloud)",
+        validation_alias="QWEN_API_KEY",
     )
     deepseek_api_key: SecretStr = Field(
         default=SecretStr(""),

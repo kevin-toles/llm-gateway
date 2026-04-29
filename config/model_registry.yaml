@@ -101,6 +101,16 @@ providers:
   # EXTERNAL_AGGREGATOR: Pass-through APIs - EXPLICIT PREFIX REQUIRED
   # These NEVER auto-route. Must use prefix syntax.
   # =========================================================================
+  qwen:
+    category: external_owned
+    env_key: QWEN_API_KEY
+    models:
+      - qwen-turbo
+      - qwen-plus
+      - qwen-max
+      - qwen-turbo-1101
+      - qwen-plus-1127
+
   openrouter:
     category: external_aggregator
     explicit_only: true
@@ -127,3 +137,5 @@ aliases:
   # Google
   google: gemini-1.5-pro
   gemini: gemini-1.5-pro
+  # Qwen
+  qwen: qwen-plus
