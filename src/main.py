@@ -120,8 +120,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             extra={"otlp_endpoint": settings.otlp_endpoint or "console"}
         )
 
-    # P4-07: configure_otel() — env-var-driven, idempotent, FastAPIInstrumentor
-    configure_otel(service_name="llm-gateway", app=app)
+    # P4-07: Configure provider only during lifespan.
+    # FastAPI middleware instrumentation must happen before app startup.
+    configure_otel(service_name="llm-gateway")
     
     # Initialize app state - WBS 2.1.1.2.7
     app.state.initialized = True
@@ -187,6 +188,9 @@ app = FastAPI(
     redoc_url="/redoc" if ENV != "production" else None,
     lifespan=lifespan,
 )
+
+# P4-07: Apply FastAPI auto-instrumentation before startup.
+configure_otel(service_name="llm-gateway", app=app)
 
 # Configure CORS - WBS 2.1.1.1.5
 # Issue 35 Fix: Use get_cors_origins() for configurable allowed origins
