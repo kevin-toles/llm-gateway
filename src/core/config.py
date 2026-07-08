@@ -137,6 +137,23 @@ class Settings(BaseSettings):
         description="URL of the inference-service for local GGUF models",
         validation_alias="INFERENCE_SERVICE_URL",
     )
+    inference_enabled: bool = Field(
+        default=True,
+        description="Enable inference provider for local GGUF models. "
+                    "Set to false to allow passthrough-only routing.",
+    )
+
+    # =========================================================================
+    # Gateway Bypass — pure passthrough mode
+    # =========================================================================
+    bypass_enabled: bool = Field(
+        default=False,
+        description="Bypass the LLM gateway entirely — act as a pure passthrough "
+                    "proxy to the upstream Anthropic API. When enabled, ALL request "
+                    "processing (CMS enrichment, provider routing, SDK detection, "
+                    "model routing) is skipped and the raw request is forwarded "
+                    "directly upstream. Set LLM_GATEWAY_BYPASS_ENABLED=true.",
+    )
 
     # =========================================================================
     # WBS-CMS11: Context Management Service Configuration

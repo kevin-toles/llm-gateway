@@ -68,8 +68,16 @@ providers:
     category: external_owned
     env_key: ANTHROPIC_API_KEY
     models:
-      - claude-opus-4.5
-      - claude-sonnet-4.5
+      # Current generation (July 2026)
+      - claude-fable-5
+      - claude-mythos-5
+      - claude-sonnet-5
+      - claude-opus-4-8
+      - claude-opus-4-7
+      - claude-sonnet-4-6
+      - claude-opus-4-6
+      - claude-opus-4-5
+      - claude-haiku-4-5
 
   openai:
     category: external_owned
@@ -129,8 +137,11 @@ aliases:
   chatgpt: gpt-5.2
   gpt: gpt-5.2
   # Anthropic
-  anthropic: claude-opus-4.5
-  claude: claude-opus-4.5
+  anthropic: claude-sonnet-4-6
+  claude: claude-sonnet-4-6
+  claude-latest: claude-sonnet-5
+  claude-opus: claude-opus-4-8
+  claude-haiku: claude-haiku-4-5
   # DeepSeek
   deepseek: deepseek-chat
   reasoner: deepseek-reasoner

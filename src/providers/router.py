@@ -58,12 +58,19 @@ def _load_model_registry(path: Path | None = None) -> dict[str, Any]:
     return config
 
 
-def _build_registered_models(config: dict[str, Any]) -> dict[str, str]:
+def _build_registered_models(
+    config: dict[str, Any],
+    inference_enabled: bool = True,
+) -> dict[str, str]:
     """Build the COMPLETE model→provider allowlist from registry YAML.
 
     Reads EVERY provider's `models:` list and maps each model to its
     provider name. This is THE bouncer list — if a model isn't here,
     it cannot be contacted. Period.
+
+    When ``inference_enabled`` is False, the ``inference`` provider's
+    models are skipped entirely so they cannot intercept passthrough
+    requests (e.g. ``claude-sonnet-4-*`` won't match inference models).
 
     Pattern: MLflow gateway/app.py — `if name in self.dynamic_endpoints`
     Pattern: Terraform provider_validation.go — `if _, exists := m[key]`
@@ -71,6 +78,8 @@ def _build_registered_models(config: dict[str, Any]) -> dict[str, str]:
 
     Args:
         config: Parsed model_registry.yaml.
+        inference_enabled: If False, skip models from the ``inference``
+            provider to prevent passthrough interception.
 
     Returns:
         Dict mapping model name → provider name (ALL providers, ALL models).
@@ -78,6 +87,9 @@ def _build_registered_models(config: dict[str, Any]) -> dict[str, str]:
     registered: dict[str, str] = {}
     providers = config.get("providers", {})
     for provider_name, provider_config in providers.items():
+        if provider_name == "inference" and not inference_enabled:
+            logger.info("Skipping inference provider models (inference_enabled=False)")
+            continue
         for model in provider_config.get("models", []):
             registered[model] = provider_name
     logger.info(
@@ -132,6 +144,43 @@ class NoProviderError(Exception):
     pass
 
 
+# =============================================================================
+# SDK Detection
+# =============================================================================
+
+_SDK_HEADERS = frozenset({
+    "x-stainless-lang",
+    "x-stainless-package-version",
+    "x-stainless-os",
+    "x-stainless-arch",
+    "x-stainless-runtime",
+    "x-stainless-runtime-version",
+    "x-request-source",
+})
+
+
+def is_sdk_originated(headers: dict[str, str] | None) -> bool:
+    """Detect whether a request originated from the Anthropic SDK (Claude Code).
+
+    The Anthropic Python/Typescript SDKs and Claude Code send specific
+    ``X-Stainless-*`` headers.  The presence of ANY of these headers
+    identifies the caller as an SDK-based client, which should be routed
+    directly to the Anthropic provider without alias/prefix/registry
+    resolution.
+
+    Args:
+        headers: Raw request headers (case-insensitive key lookup).
+
+    Returns:
+        True if the request carries Anthropic SDK headers.
+    """
+    if not headers:
+        return False
+    # Fast path: normalise once, check intersection
+    lower_keys = {k.lower().strip() for k in headers}
+    return bool(_SDK_HEADERS & lower_keys)
+
+
 class ProviderRouter:
     """Routes requests to appropriate LLM provider based on model name.
 
@@ -154,6 +203,7 @@ class ProviderRouter:
         providers: dict[str, LLMProvider] | None = None,
         default_provider: str | None = None,
         registry_path: Path | None = None,
+        inference_enabled: bool = True,
     ) -> None:
         """Initialize the provider router.
 
@@ -164,6 +214,9 @@ class ProviderRouter:
             default_provider: Name of the default provider (used ONLY if
                               registry YAML specifies a non-null default).
             registry_path: Override path for testing.
+            inference_enabled: If False, skip inference models in the
+                registered models allowlist so they cannot intercept
+                passthrough requests.
         """
         self._providers: dict[str, LLMProvider] = providers or {}
         self._default_provider = default_provider
@@ -175,7 +228,7 @@ class ProviderRouter:
             logger.warning("Model registry YAML not found, using empty routing tables")
             config = {"providers": {}, "routing": [], "aliases": {}}
 
-        self.REGISTERED_MODELS = _build_registered_models(config)
+        self.REGISTERED_MODELS = _build_registered_models(config, inference_enabled=inference_enabled)
         self.MODEL_PREFIXES = _build_prefix_map(config)
         self.PROVIDER_DEFAULTS = _build_aliases(config)
 
@@ -195,12 +248,13 @@ class ProviderRouter:
         """Get the default provider name."""
         return self._default_provider
 
-    def get_provider(self, model: str) -> LLMProvider:
+    def get_provider(self, model: str, headers: dict[str, str] | None = None) -> LLMProvider:
         """Get the appropriate provider for the given model.
 
         Like a bouncer at a club: if you're not on the list, you're not getting in.
 
         Routing Priority:
+        0. SDK-originated (Claude Code / Anthropic SDK headers) → Anthropic provider
         1. Alias resolution (e.g. "openai" → "gpt-5.2" → re-lookup)
         2. Explicit prefix (e.g. "openrouter/model" → openrouter provider)
         3. Registered model lookup (THE list — built from all providers' models)
@@ -208,9 +262,33 @@ class ProviderRouter:
 
         Pattern: MLflow gateway/app.py — if name in endpoints → route, else reject
         Pattern: Terraform — if _, exists := m[key]; exists → use, else skip
+
+        Args:
+            model: The model name to route.
+            headers: Optional request headers for SDK detection.
+
+        Returns:
+            An LLMProvider instance.
+
+        Raises:
+            NoProviderError: If no suitable provider is found.
         """
         if not self._providers:
             raise NoProviderError("No providers registered")
+
+        # 0. SDK-originated check — Claude Code / Anthropic SDK bypasses
+        #    alias/prefix/registry resolution and routes directly to Anthropic.
+        if is_sdk_originated(headers):
+            if "anthropic" not in self._providers:
+                raise NoProviderError(
+                    "SDK-originated request detected but Anthropic provider "
+                    "is not registered (no API key configured)."
+                )
+            logger.info(
+                "Routing %s to anthropic (SDK-originated, headers present)",
+                model,
+            )
+            return self._providers["anthropic"]
 
         model_lower = model.lower()
 
@@ -218,7 +296,7 @@ class ProviderRouter:
         if model_lower in self.PROVIDER_DEFAULTS:
             actual_model = self.PROVIDER_DEFAULTS[model_lower]
             logger.info(f"Alias '{model}' -> '{actual_model}'")
-            return self.get_provider(actual_model)
+            return self.get_provider(actual_model, headers=headers)
 
         # 2. Explicit prefix? (e.g. "openrouter/mixtral" → openrouter)
         for prefix, provider_name in self.MODEL_PREFIXES.items():
@@ -479,7 +557,9 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
     # Hybrid mode: inference provider registered directly (INFERENCE_SERVICE_URL=http://localhost:8085).
     # In Docker mode, local models route through CMS proxy instead.
     # In hybrid mode (platform services on bare metal), route directly to inference-service.
-    _register_inference(settings, providers)
+    # Gate: skip inference when disabled to prevent intercepting passthrough calls.
+    if settings.inference_enabled:
+        _register_inference(settings, providers)
 
     # Cloud providers
     _register_openai(settings, providers)
@@ -505,5 +585,9 @@ def create_provider_router(settings: "Settings") -> ProviderRouter:
         )
 
     default = settings.default_provider if settings.default_provider in providers else None
-    return ProviderRouter(providers=providers, default_provider=default)
+    return ProviderRouter(
+        providers=providers,
+        default_provider=default,
+        inference_enabled=settings.inference_enabled,
+    )
 

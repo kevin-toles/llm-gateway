@@ -189,7 +189,7 @@ class DeepSeekProvider(LLMProvider):
         """Build request parameters for the API call."""
         params: dict[str, Any] = {
             "model": model,
-            "messages": [m.model_dump() for m in request.messages],
+            "messages": [m.model_dump(exclude_none=True) for m in request.messages],
         }
         if stream:
             params["stream"] = True
@@ -201,14 +201,25 @@ class DeepSeekProvider(LLMProvider):
             params["top_p"] = request.top_p
         if request.stop is not None:
             params["stop"] = request.stop
+        if request.tools is not None:
+            params["tools"] = [t.model_dump() for t in request.tools]
+        if request.tool_choice is not None:
+            params["tool_choice"] = request.tool_choice
         return params
 
-    def _extract_choice_content(self, choice) -> str:
-        """Extract content from a choice, handling reasoner model's reasoning_content."""
+    def _extract_choice_content(self, choice) -> str | None:
+        """Extract content from a choice, handling reasoner model's reasoning_content.
+
+        Only falls back to reasoning_content when the choice is a plain text response
+        (not a tool call) — avoids corrupting tool_calls responses where content is
+        intentionally empty.
+        """
+        # When model made tool calls, content is intentionally None/empty — don't substitute
+        has_tool_calls = bool(getattr(choice.message, "tool_calls", None))
         content = choice.message.content or ""
-        if not content and hasattr(choice.message, "reasoning_content"):
+        if not content and not has_tool_calls and hasattr(choice.message, "reasoning_content"):
             content = getattr(choice.message, "reasoning_content", "") or ""
-        return content
+        return content or None
 
     def _build_completion_response(self, response) -> ChatCompletionResponse:
         """Build ChatCompletionResponse from API response."""
@@ -218,6 +229,10 @@ class DeepSeekProvider(LLMProvider):
                 message=ChoiceMessage(
                     role=choice.message.role,
                     content=self._extract_choice_content(choice),
+                    tool_calls=[
+                        tc.model_dump() if hasattr(tc, "model_dump") else dict(tc)
+                        for tc in choice.message.tool_calls
+                    ] if getattr(choice.message, "tool_calls", None) else None,
                 ),
                 finish_reason=choice.finish_reason,
             )

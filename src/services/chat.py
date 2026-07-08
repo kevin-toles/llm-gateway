@@ -26,7 +26,7 @@ Pattern: Command Executor (tool calls as commands)
 import json
 import logging
 import re
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 from src.models.domain import Message as DomainMessage, ToolCall
 from src.models.requests import ChatCompletionRequest, Message
@@ -179,7 +179,9 @@ class ChatService:
         self._max_tool_iterations = max_tool_iterations
 
     async def complete(
-        self, request: ChatCompletionRequest
+        self,
+        request: ChatCompletionRequest,
+        headers: dict[str, str] | None = None,
     ) -> ChatCompletionResponse:
         """
         Process a chat completion request.
@@ -197,6 +199,7 @@ class ChatService:
 
         Args:
             request: The chat completion request.
+            headers: Optional request headers for SDK-originated routing.
 
         Returns:
             The chat completion response.
@@ -228,7 +231,7 @@ class ChatService:
         
         # WBS 2.6.1.1.6: Get provider from router
         try:
-            provider = self._router.get_provider(request.model)
+            provider = self._router.get_provider(request.model, headers=headers)
         except NoProviderError as e:
             raise ChatServiceError(f"No provider available: {e}") from e
 
@@ -955,3 +958,36 @@ class ChatService:
                 tool_calls=response.choices[0].message.tool_calls,
             )
             await self._session_manager.add_message(request.session_id, assistant_msg)
+
+    async def stream_completion(
+        self,
+        request: ChatCompletionRequest,
+        headers: dict[str, str] | None = None,
+    ) -> AsyncGenerator[ChatCompletionResponse, None]:
+        """
+        Stream a completion from the provider.
+
+        Unlike complete(), streaming bypasses session loading, tool call
+        loops, and context management.  The caller (SSE generator) handles
+        yielding individual chunks.
+
+        Args:
+            request: The chat completion request (stream=True expected).
+            headers: Optional HTTP headers (used for SDK detection routing).
+
+        Yields:
+            ChatCompletionResponse chunks as they arrive from the provider.
+        """
+        model = self._router.resolve_model_alias(request.model)
+        provider = self._router.get_provider(model, headers=headers)
+        messages = list(request.messages)
+        working_request = self._create_working_request(request, messages)
+
+        logger.info(
+            "Streaming completion for model=%s via provider=%s",
+            model,
+            provider.__class__.__name__,
+        )
+
+        async for chunk in provider.stream(working_request):
+            yield chunk

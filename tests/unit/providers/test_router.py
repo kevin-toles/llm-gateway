@@ -467,6 +467,94 @@ class TestCreateProviderRouter:
 
 
 # =============================================================================
+# WBS 2.3.5.1.13: _build_registered_models inference_enabled tests
+# =============================================================================
+
+
+class TestBuildRegisteredModels:
+    """Tests for _build_registered_models inference_enabled gating."""
+
+    def test_skips_inference_models_when_inference_disabled(self) -> None:
+        """
+        WBS 2.3.5.1.13: When inference_enabled=False, inference provider
+        models are excluded from the registered models dict.
+        """
+        from src.providers.router import _build_registered_models
+
+        config = {
+            "providers": {
+                "inference": {
+                    "models": ["phi-4", "deepseek-coder"],
+                },
+                "anthropic": {
+                    "models": ["claude-sonnet-4-6"],
+                },
+            },
+        }
+
+        result = _build_registered_models(config, inference_enabled=False)
+
+        # Inference models must NOT be in the result
+        assert "phi-4" not in result
+        assert "deepseek-coder" not in result
+        # Other provider models must still be present
+        assert "claude-sonnet-4-6" in result
+        assert result["claude-sonnet-4-6"] == "anthropic"
+        assert len(result) == 1
+
+    def test_includes_inference_models_when_inference_enabled(self) -> None:
+        """
+        WBS 2.3.5.1.13: When inference_enabled=True (default), inference
+        provider models ARE included in the registered models dict.
+        """
+        from src.providers.router import _build_registered_models
+
+        config = {
+            "providers": {
+                "inference": {
+                    "models": ["phi-4", "deepseek-coder"],
+                },
+                "anthropic": {
+                    "models": ["claude-sonnet-4-6"],
+                },
+            },
+        }
+
+        result = _build_registered_models(config, inference_enabled=True)
+
+        # Inference models must be present
+        assert "phi-4" in result
+        assert result["phi-4"] == "inference"
+        assert "deepseek-coder" in result
+        assert result["deepseek-coder"] == "inference"
+        # Other provider models still present
+        assert "claude-sonnet-4-6" in result
+        assert result["claude-sonnet-4-6"] == "anthropic"
+        assert len(result) == 3
+
+    def test_default_behavior_includes_inference_models(self) -> None:
+        """
+        WBS 2.3.5.1.13: Default parameter value (inference_enabled=True)
+        includes inference models — same as explicit True.
+        """
+        from src.providers.router import _build_registered_models
+
+        config = {
+            "providers": {
+                "inference": {
+                    "models": ["phi-4"],
+                },
+            },
+        }
+
+        result_default = _build_registered_models(config)
+        result_explicit = _build_registered_models(config, inference_enabled=True)
+
+        assert result_default == result_explicit
+        assert "phi-4" in result_default
+
+
+# =============================================================================
 # WBS 2.3.5.2.4: Logging tests
 # =============================================================================
 

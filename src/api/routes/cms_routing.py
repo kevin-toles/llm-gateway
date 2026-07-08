@@ -51,6 +51,13 @@ MODEL_CONTEXT_LIMITS: dict[str, int] = {
     "claude-sonnet-4.5": 200000,
     "claude-opus-4-5-20250514": 200000,
     "claude-sonnet-4-5-20250514": 200000,
+    # Current generation (4.6/4.7)
+    "claude-sonnet-4-6": 200000,
+    "claude-opus-4-7": 200000,
+    "claude-haiku-4-5-20251001": 200000,
+    "claude-sonnet-4.6": 200000,
+    "claude-opus-4.7": 200000,
+    "claude-haiku-4.5": 200000,
     # Google
     "gemini-2.0-flash": 1048576,
     "gemini-1.5-pro": 2097152,

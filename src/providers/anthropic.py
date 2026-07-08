@@ -22,9 +22,12 @@ Format Differences (OpenAI → Anthropic):
 
 import asyncio
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from anthropic import AsyncAnthropic
 
@@ -54,16 +57,23 @@ from src.providers.base import LLMProvider
 SUPPORTED_MODELS = [
     "claude-sonnet-4-5-20250514",
     "claude-opus-4-5-20250514",
+    # Current generation (4.6/4.7)
+    "claude-sonnet-4-6",
+    "claude-opus-4-7",
+    "claude-haiku-4-5-20251001",
 ]
 
 # Model ID aliases - maps user-friendly IDs to official Anthropic IDs
-# Anthropic API uses different IDs than what users might expect
 MODEL_ALIASES = {
     # Claude 4.5 aliases (users say "4.5", Anthropic API uses "4")
     "claude-opus-4-5-20250514": "claude-opus-4-20250514",
     "claude-sonnet-4-5-20250514": "claude-sonnet-4-20250514",
     "claude-opus-4.5": "claude-opus-4-20250514",
     "claude-sonnet-4.5": "claude-sonnet-4-20250514",
+    # Current generation shorthand
+    "claude-sonnet-4.6": "claude-sonnet-4-6",
+    "claude-opus-4.7": "claude-opus-4-7",
+    "claude-haiku-4.5": "claude-haiku-4-5-20251001",
 }
 
 
@@ -362,25 +372,89 @@ class AnthropicProvider(LLMProvider):
 
     def __init__(
         self,
-        api_key: str,
+        credential: str | None = None,
+        credential_type: str | None = None,
+        api_key: str | None = None,
+        auth_token: str | None = None,
         max_retries: int = 3,
         retry_delay: float = 1.0,
     ) -> None:
         """
         Initialize Anthropic provider.
 
-        WBS 2.3.2.1.3: __init__ with api_key parameter.
+        WBS 2.3.2.1.3: __init__ with unified credential or legacy api_key/auth_token.
+
+        Supports two authentication modes:
+        - api_key: Console API keys (sk-ant-*) — sent as X-Api-Key header
+        - auth_token: OAuth tokens (sk-ant-oat01-*) — sent as Authorization: Bearer
+
+        At least one authentication parameter must be provided.
+
+        The recommended interface is `credential` + `credential_type`:
+            AnthropicProvider(credential="sk-ant-...", credential_type="api_key")
+            AnthropicProvider(credential="sk-ant-oat01-...", credential_type="auth_token")
+
+        The legacy interface (`api_key`/`auth_token` kwargs) is supported for
+        backward compatibility.
+
+        CRITICAL: When using auth_token, api_key=None is explicitly passed to
+        the SDK client to override ambient ANTHROPIC_API_KEY env var, preventing
+        the SDK's AccessTokenAuth._has_static_credential() guard from
+        short-circuiting OAuth Bearer token injection.
 
         Args:
-            api_key: Anthropic API key.
+            credential: Unified credential string (auto-detected or paired with
+                credential_type).
+            credential_type: One of "api_key" or "auth_token". When set, the
+                credential is used directly without prefix-based auto-detection.
+            api_key: Legacy parameter — Anthropic API key (sk-ant-* prefix).
+            auth_token: Legacy parameter — Anthropic OAuth token
+                (sk-ant-oat01-* prefix).
             max_retries: Maximum retry attempts (default: 3).
             retry_delay: Initial retry delay in seconds (default: 1.0).
         """
-        self._api_key = api_key
+        # Resolve credential from unified or legacy parameters
+        resolved_api_key: str | None = api_key
+        resolved_auth_token: str | None = auth_token
+
+        if credential:
+            if credential_type == "auth_token":
+                resolved_auth_token = credential
+            elif credential_type == "api_key":
+                resolved_api_key = credential
+            else:
+                # Auto-detect from prefix
+                if credential.startswith("sk-ant-oat01-"):
+                    resolved_auth_token = credential
+                else:
+                    resolved_api_key = credential
+
+        # Validate: at least one auth mechanism
+        if not resolved_api_key and not resolved_auth_token:
+            raise ValueError(
+                "At least one of api_key or auth_token must be provided"
+            )
+
+        self._api_key = resolved_api_key
+        self._auth_token = resolved_auth_token
         self._max_retries = max_retries
         self._retry_delay = retry_delay
         self._tool_handler = AnthropicToolHandler()
-        self._client = AsyncAnthropic(api_key=api_key)
+
+        client_kwargs: dict[str, Any] = {
+            "default_headers": {"anthropic-beta": "messages-2.0"},
+        }
+        if resolved_auth_token:
+            client_kwargs["auth_token"] = resolved_auth_token
+            # CRITICAL: Explicitly set api_key=None to override ambient
+            # ANTHROPIC_API_KEY env var. Without this, the SDK auto-reads
+            # the env var into _custom_headers, setting X-Api-Key, which
+            # causes AccessTokenAuth._has_static_credential() to short-circuit
+            # OAuth Bearer token injection.
+            client_kwargs["api_key"] = None
+        if resolved_api_key:
+            client_kwargs["api_key"] = resolved_api_key
+        self._client = AsyncAnthropic(**client_kwargs)
 
     # =========================================================================
     # WBS 2.3.2.1.7: Model Support Methods
@@ -431,7 +505,7 @@ class AnthropicProvider(LLMProvider):
         """
         # Build request kwargs
         kwargs = self._build_request_kwargs(request)
-
+        logger.info(f"AnthropicProvider.complete() called: request.stream={request.stream!r}, 'stream' in kwargs={'stream' in kwargs}, model={kwargs.get('model', 'unknown')}")
         # Execute with retry
         response = await self._execute_with_retry(
             self._client.messages.create,
@@ -463,6 +537,7 @@ class AnthropicProvider(LLMProvider):
             AuthenticationError: On auth errors.
         """
         kwargs = self._build_request_kwargs(request)
+        logger.info(f"AnthropicProvider.complete_streaming() called: 'stream' in kwargs={'stream' in kwargs}, model={kwargs.get('model', 'unknown')}")
 
         try:
             async with self._client.messages.stream(**kwargs) as stream:
@@ -487,44 +562,6 @@ class AnthropicProvider(LLMProvider):
                         )
         except Exception as e:
             self._handle_error(e)
-
-    # =========================================================================
-    # WBS 2.3.2.1.6: supports_model() method
-    # =========================================================================
-
-    def supports_model(self, model: str) -> bool:
-        """
-        Check if this provider supports the specified model.
-
-        WBS 2.3.2.1.6: Implement supports_model().
-
-        Args:
-            model: The model identifier.
-
-        Returns:
-            True if model is supported, False otherwise.
-        """
-        # Check exact match first
-        if model in SUPPORTED_MODELS:
-            return True
-
-        # Check prefix match for Claude models
-        return model.startswith("claude-")
-
-    # =========================================================================
-    # WBS 2.3.2.1.7: get_supported_models() method
-    # =========================================================================
-
-    def get_supported_models(self) -> list[str]:
-        """
-        Get the list of supported model identifiers.
-
-        WBS 2.3.2.1.7: Implement get_supported_models().
-
-        Returns:
-            List of supported model identifiers.
-        """
-        return SUPPORTED_MODELS.copy()
 
     # =========================================================================
     # WBS 2.3.2.1.8: Retry Logic with Exponential Backoff

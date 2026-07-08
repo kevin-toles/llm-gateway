@@ -65,6 +65,9 @@ services:
       
       # Extended session for development
       LLM_GATEWAY_SESSION_TTL_SECONDS: "86400"  # 24 hours
+      
+      # Disable local inference (Option B)
+      LLM_GATEWAY_INFERENCE_ENABLED: "false"
     
     # WBS 3.4.2.1.4: Expose additional ports for debugging
     ports:

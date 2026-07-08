@@ -29,7 +29,7 @@ import os
 import logging
 from typing import Optional, AsyncGenerator
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 
 from src.core.exceptions import ProviderError
@@ -170,6 +170,7 @@ def _check_responses_api_model(model: str) -> JSONResponse | None:
 @router.post("/completions", response_model=None)
 async def create_chat_completion(
     request: ChatCompletionRequest,
+    request_obj: Request,
     chat_service: RealChatService = Depends(get_chat_service),
     x_cms_mode: Optional[str] = Header(None, alias="X-CMS-Mode"),
 ) -> ChatCompletionResponse | StreamingResponse | JSONResponse | Response:
@@ -202,7 +203,7 @@ async def create_chat_completion(
         HTTPException 503: CMS unavailable for Tier 3+ requests
         JSONResponse 502: Provider error (upstream failure)
     """
-    logger.debug(f"Chat completion request: model={request.model}, stream={request.stream}")
+    logger.info(f"Chat completion request: model={request.model}, stream={request.stream}, messages_count={len(request.messages)}")
     
     # Check for Responses API models first
     if error_response := _check_responses_api_model(request.model):
@@ -245,14 +246,17 @@ async def create_chat_completion(
     # ==========================================================================
 
     try:
+        logger.info(f"STREAMING DECISION: request.stream={request.stream!r}, routing to {'StreamingResponse' if request.stream else 'chat_service.complete()'}")
         if request.stream:
             # For streaming, add CMS headers to the StreamingResponse
+            raw_headers = dict(request_obj.headers.items())
             return StreamingResponse(
-                _stream_sse_generator(chat_service, request),
+                _stream_sse_generator(chat_service, request, headers=raw_headers),
                 media_type="text/event-stream",
                 headers=cms_headers,
             )
 
+        logger.info(f"NON-STREAMING PATH: calling chat_service.complete()")
         # Issue 27: Real ChatService uses complete(), not create_completion()
         response = await chat_service.complete(request)
 
@@ -295,7 +299,8 @@ async def create_chat_completion(
 
 
 async def _stream_sse_generator(
-    chat_service: RealChatService, request: ChatCompletionRequest
+    chat_service: RealChatService, request: ChatCompletionRequest,
+    headers: dict[str, str] | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Generate SSE-formatted stream from chat service.
@@ -309,11 +314,12 @@ async def _stream_sse_generator(
     Args:
         chat_service: The chat service instance
         request: The chat completion request
+        headers: Optional HTTP headers for SDK detection
 
     Yields:
         str: SSE-formatted data lines
     """
-    async for chunk in chat_service.stream_completion(request):
+    async for chunk in chat_service.stream_completion(request, headers=headers):
         yield f"data: {chunk.model_dump_json()}\n\n"
 
     # End marker - WBS 2.2.3.3.1

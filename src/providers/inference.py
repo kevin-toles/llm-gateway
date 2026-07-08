@@ -13,12 +13,14 @@ windows, optimizes/chunks if needed, and forwards to inference-service.
 URL resolution uses ai_platform_common for infrastructure-aware discovery.
 """
 
+import json
 import logging
 from typing import Any, AsyncIterator
 
 import httpx
 
 from src.providers.base import LLMProvider
+from src.core.exceptions import ProviderError
 from src.models.requests import ChatCompletionRequest
 from src.models.responses import ChatCompletionResponse, ChatCompletionChunk
 
@@ -199,8 +201,19 @@ class InferenceServiceProvider(LLMProvider):
         # Pattern ref: Envoy x-envoy-max-retries, Kong X-Kong-Proxy-Latency
         proxy_headers = {"X-CMS-Origin": "gateway"} if self._cms_enabled else {}
         
-        response = await client.post(endpoint, json=payload, headers=proxy_headers)
-        response.raise_for_status()
+        try:
+            response = await client.post(endpoint, json=payload, headers=proxy_headers)
+            response.raise_for_status()
+        except (httpx.RequestError, httpx.HTTPStatusError) as e:
+            logger.error(
+                "Inference service request failed: %s (endpoint=%s, model=%s)",
+                e, endpoint, request.model,
+            )
+            raise ProviderError(
+                status_code=502,
+                message=f"Inference service unavailable: {e}",
+                provider="inference",
+            ) from e
         
         result = response.json()
         logger.debug("Inference response received (via %s)", "CMS" if self._cms_enabled else "direct")
@@ -241,25 +254,35 @@ class InferenceServiceProvider(LLMProvider):
         # Loop detection header for streaming (same as non-streaming)
         proxy_headers = {"X-CMS-Origin": "gateway"} if self._cms_enabled else {}
         
-        async with client.stream(
-            "POST",
-            endpoint,
-            json=payload,
-            headers=proxy_headers,
-        ) as response:
-            response.raise_for_status()
+        try:
+            async with client.stream(
+                "POST",
+                endpoint,
+                json=payload,
+                headers=proxy_headers,
+            ) as response:
+                response.raise_for_status()
             
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    data = line[6:]
-                    if data.strip() == "[DONE]":
-                        break
-                    try:
-                        import json
-                        chunk_data = json.loads(data)
-                        yield ChatCompletionChunk(**chunk_data)
-                    except Exception:
-                        continue
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]
+                        if data.strip() == "[DONE]":
+                            break
+                        try:
+                            chunk_data = json.loads(data)
+                            yield ChatCompletionChunk(**chunk_data)
+                        except Exception:
+                            continue
+        except (httpx.RequestError, httpx.HTTPStatusError) as e:
+            logger.error(
+                "Inference service stream request failed: %s (endpoint=%s, model=%s)",
+                e, endpoint, request.model,
+            )
+            raise ProviderError(
+                status_code=502,
+                message=f"Inference service unavailable: {e}",
+                provider="inference",
+            ) from e
     
     async def close(self) -> None:
         """Close HTTP clients."""
