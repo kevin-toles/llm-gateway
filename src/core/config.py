@@ -17,6 +17,7 @@ Reference:
 """
 
 import logging
+import os
 from enum import Enum
 from functools import lru_cache
 from typing import Literal
@@ -399,3 +400,33 @@ def get_settings() -> Settings:
         Settings: The application settings instance.
     """
     return Settings()
+
+
+def validate_config(settings: Settings) -> list[str]:
+    """Validate settings for the current deployment mode.
+
+    In Docker mode, all service-to-service URLs must use container DNS names,
+    not localhost. Returns a list of warning strings (all are also logged).
+    """
+    mode = os.environ.get("DEPLOYMENT_MODE", "hybrid").lower()
+    logger.info("deployment_mode=%s service=llm-gateway", mode)
+
+    warnings: list[str] = []
+    if mode != "docker":
+        return warnings
+
+    prefix = str(settings.model_config.get("env_prefix", ""))
+    for field, value in settings.model_dump().items():
+        if not field.upper().endswith("_URL"):
+            continue
+        if not isinstance(value, str):
+            continue
+        if "localhost" in value or "127.0.0.1" in value:
+            warnings.append(
+                f"DOCKER MODE: {field}={value!r} uses localhost — "
+                f"set {prefix}{field.upper()} to a container DNS name"
+            )
+
+    for w in warnings:
+        logger.warning(w)
+    return warnings

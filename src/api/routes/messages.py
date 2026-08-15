@@ -208,7 +208,7 @@ async def _passthrough_request(
     caller_api_key: Optional[str],
 ) -> JSONResponse | StreamingResponse:
     """Forward the raw request upstream, bypassing all CMS/provider routing."""
-    upstream_base = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+    upstream_base = os.environ.get("ANTHROPIC_UPSTREAM_URL", "https://api.anthropic.com")
     upstream_url = f"{upstream_base.rstrip('/')}/v1/messages"
 
     upstream_headers = {

@@ -33,7 +33,7 @@ from src.middleware.tracing import configure_otel
 
 # P1-03: Platform-standard MetricsMiddleware (ai_platform_* metric names)
 from src.middleware.metrics import MetricsMiddleware as PlatformMetricsMiddleware
-from src.core.config import get_settings
+from src.core.config import get_settings, validate_config
 
 # Import routers - WBS 2.1.1.1.4, 2.2.1, 2.2.2, 2.2.3, 2.2.4, 2.2.5
 from src.api.routes.health import router as health_router
@@ -105,7 +105,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # =========================================================================
     logger = get_logger(__name__)
     settings = get_settings()
-    
+    validate_config(settings)
+
     logger.info(f"{APP_NAME} v{APP_VERSION} starting in {ENV} mode")
     logger.info(f"Log level: {LOG_LEVEL}")
     
