@@ -1,0 +1,52 @@
+# ==============================================================================
+# LLM Gateway - Docker Compose Development Override
+# ==============================================================================
+# Development overrides with hot-reload and debug settings
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+# See docs/DEPLOYMENT_IMPLEMENTATION_PLAN.md Section 1.2.4 for implementation
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # LLM Gateway - Development Overrides
+  # ============================================================================
+  llm-gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.dev
+    
+    # Volume mounts for hot-reload
+    volumes:
+      # Source code - hot-reload on changes
+      - ../../src:/app/src:ro
+      - ../../config:/app/config:ro
+      - ../../scripts:/app/scripts:ro
+      
+      # Logs - persist outside container
+      - ../../logs:/app/logs
+      
+      # Tests - for running tests in container
+      - ../../tests:/app/tests:ro
+    
+    # Development environment variables
+    environment:
+      LLM_GATEWAY_ENV: development
+      LLM_GATEWAY_LOG_LEVEL: DEBUG
+      LLM_GATEWAY_WORKERS: "1"  # Single worker for easier debugging
+      
+      # Enable Python debug mode
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      
+      # Disable rate limiting in dev
+      LLM_GATEWAY_RATE_LIMIT_REQUESTS_PER_MINUTE: "1000"
+    
+    # Override command for hot-reload
+    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload", "--reload-dir", "/app/src"]
+    
+    # No restart in dev - fail fast
+    restart: "no"
+    
+    # Stdin/tty for interactive debugging
+    stdin_open: true
+    tty: true

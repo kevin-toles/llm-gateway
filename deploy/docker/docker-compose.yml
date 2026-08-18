@@ -1,0 +1,127 @@
+# ==============================================================================
+# LLM Gateway - Docker Compose (Full Stack)
+# ==============================================================================
+# Full stack local development with all services
+# See docs/DEPLOYMENT_IMPLEMENTATION_PLAN.md Section 1.2.4 for implementation
+# See docs/INTEGRATION_MAP.md for service configuration details
+#
+# PREREQUISITE: ai-platform-data infrastructure must be running:
+#   cd ai-platform-data/docker && docker-compose -f docker-compose.yml -f docker-compose.hybrid.yml up -d
+#
+# This provides:
+#   - ai-platform-redis (port 6379) - Session storage & caching
+#   - ai-platform-neo4j (ports 7474, 7687) - Graph database  
+#   - ai-platform-qdrant (ports 6333, 6334) - Vector database
+# ==============================================================================
+
+version: "3.9"
+
+services:
+  # ============================================================================
+  # NOTE: Redis is provided by ai-platform-data as ai-platform-redis
+  # ============================================================================
+
+  # ============================================================================
+  # LLM Gateway - Main Service
+  # ============================================================================
+  llm-gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    container_name: llm-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      # Service Configuration
+      LLM_GATEWAY_ENV: development
+      LLM_GATEWAY_PORT: "8080"
+      LLM_GATEWAY_LOG_LEVEL: DEBUG
+      LLM_GATEWAY_WORKERS: "2"
+      
+      # Redis Configuration - Uses platform's centralized Redis
+      LLM_GATEWAY_REDIS_URL: redis://ai-platform-redis:6379
+      
+      # Service Discovery (per INTEGRATION_MAP.md)
+      LLM_GATEWAY_SEMANTIC_SEARCH_URL: http://semantic-search:8081
+      LLM_GATEWAY_AI_AGENTS_URL: http://ai-agents:8082
+      
+      # Provider Configuration (override with .env file)
+      LLM_GATEWAY_DEFAULT_PROVIDER: anthropic
+      LLM_GATEWAY_DEFAULT_MODEL: claude-3-sonnet-20240229
+      
+      # Rate Limiting
+      LLM_GATEWAY_RATE_LIMIT_REQUESTS_PER_MINUTE: "60"
+      
+      # Session Configuration
+      LLM_GATEWAY_SESSION_TTL_SECONDS: "3600"
+    env_file:
+      - .env  # For API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - ai-platform-network
+
+  # ============================================================================
+  # Semantic Search Service - Stub for Development
+  # Issue 24 Fix (Comp_Static_Analysis_Report_20251203.md):
+  # Define service stubs to prevent DNS resolution failures
+  # For full implementation, see: https://github.com/kevin-toles/semantic-search-service
+  # ============================================================================
+  semantic-search:
+    image: nginx:alpine
+    container_name: semantic-search-stub
+    ports:
+      - "8081:8081"
+    command: >
+      sh -c "echo 'Semantic Search Service Stub' && 
+             nginx -g 'daemon off;' -c /dev/null &
+             while true; do echo -e 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"stub\",\"message\":\"Replace with real semantic-search-service\"}' | nc -l -p 8081 -q 1; done"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ai-platform-network
+    profiles:
+      - stubs  # Only start with: docker-compose --profile stubs up
+
+  # ============================================================================
+  # AI Agents Service - Stub for Development
+  # For full implementation, see: https://github.com/kevin-toles/ai-agents
+  # ============================================================================
+  ai-agents:
+    image: nginx:alpine
+    container_name: ai-agents-stub
+    ports:
+      - "8082:8082"
+    command: >
+      sh -c "echo 'AI Agents Service Stub' &&
+             while true; do echo -e 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"stub\",\"message\":\"Replace with real ai-agents service\"}' | nc -l -p 8082 -q 1; done"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ai-platform-network
+    profiles:
+      - stubs  # Only start with: docker-compose --profile stubs up
+
+# ==============================================================================
+# Networks - Use the shared ai-platform-network
+# ==============================================================================
+networks:
+  ai-platform-network:
+    name: ai-platform-network
+    external: true
+
+# ==============================================================================
+# Volumes - None needed (Redis is external)
+# ==============================================================================
+volumes: {}

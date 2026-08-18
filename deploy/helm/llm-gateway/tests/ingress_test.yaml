@@ -1,0 +1,256 @@
+# =============================================================================
+# LLM Gateway - Ingress Template Unit Tests
+# =============================================================================
+# Tests for deploy/helm/llm-gateway/templates/ingress.yaml
+# Run with: helm unittest deploy/helm/llm-gateway
+# =============================================================================
+
+suite: ingress template tests
+templates:
+  - templates/ingress.yaml
+
+tests:
+  # =========================================================================
+  # Conditional Creation Tests
+  # =========================================================================
+  - it: should create Ingress when enabled
+    set:
+      ingress:
+        enabled: true
+        hosts:
+          - host: llm-gateway.example.com
+            paths:
+              - path: /
+                pathType: Prefix
+    asserts:
+      - isKind:
+          of: Ingress
+
+  - it: should NOT create Ingress when disabled
+    set:
+      ingress:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # =========================================================================
+  # Basic Resource Tests
+  # =========================================================================
+  - it: should have correct API version
+    set:
+      ingress:
+        enabled: true
+        hosts:
+          - host: test.example.com
+            paths:
+              - path: /
+    asserts:
+      - isAPIVersion:
+          of: networking.k8s.io/v1
+
+  - it: should use fullname for metadata name
+    set:
+      ingress:
+        enabled: true
+        hosts:
+          - host: test.example.com
+            paths:
+              - path: /
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-llm-gateway
+
+  # =========================================================================
+  # Ingress Class Tests
+  # =========================================================================
+  - it: should set ingressClassName when specified
+    set:
+      ingress:
+        enabled: true
+        className: nginx
+        hosts:
+          - host: test.example.com
+            paths:
+              - path: /
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+
+  - it: should support traefik ingress class
+    set:
+      ingress:
+        enabled: true
+        className: traefik
+        hosts:
+          - host: test.example.com
+            paths:
+              - path: /
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: traefik
+
+  # =========================================================================
+  # Host and Path Tests
+  # =========================================================================
+  - it: should configure host correctly
+    set:
+      ingress:
+        enabled: true
+        hosts:
+          - host: llm-gateway.example.com
+            paths:
+              - path: /
+                pathType: Prefix
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: llm-gateway.example.com
+
+  - it: should configure path correctly
+    set:
+      ingress:
+        enabled: true
+        hosts:
+          - host: test.example.com
+            paths:
+              - path: /api
+                pathType: Prefix
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /api
+      - equal:
+          path: spec.rules[0].http.paths[0].pathType
+          value: Prefix
+
+  - it: should configure multiple paths
+    set:
+      ingress:
+        enabled: true
+        hosts:
+          - host: test.example.com
+            paths:
+              - path: /api
+                pathType: Prefix
+              - path: /health
+                pathType: Exact
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /api
+      - equal:
+          path: spec.rules[0].http.paths[1].path
+          value: /health
+      - equal:
+          path: spec.rules[0].http.paths[1].pathType
+          value: Exact
+
+  - it: should configure multiple hosts
+    set:
+      ingress:
+        enabled: true
+        hosts:
+          - host: api.example.com
+            paths:
+              - path: /
+          - host: llm.example.com
+            paths:
+              - path: /
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: api.example.com
+      - equal:
+          path: spec.rules[1].host
+          value: llm.example.com
+
+  # =========================================================================
+  # TLS Configuration Tests
+  # =========================================================================
+  - it: should configure TLS when specified
+    set:
+      ingress:
+        enabled: true
+        hosts:
+          - host: secure.example.com
+            paths:
+              - path: /
+        tls:
+          - secretName: llm-gateway-tls
+            hosts:
+              - secure.example.com
+    asserts:
+      - equal:
+          path: spec.tls[0].secretName
+          value: llm-gateway-tls
+      - contains:
+          path: spec.tls[0].hosts
+          content: secure.example.com
+
+  - it: should support multiple TLS configurations
+    set:
+      ingress:
+        enabled: true
+        hosts:
+          - host: api.example.com
+            paths:
+              - path: /
+          - host: llm.example.com
+            paths:
+              - path: /
+        tls:
+          - secretName: api-tls
+            hosts:
+              - api.example.com
+          - secretName: llm-tls
+            hosts:
+              - llm.example.com
+    asserts:
+      - equal:
+          path: spec.tls[0].secretName
+          value: api-tls
+      - equal:
+          path: spec.tls[1].secretName
+          value: llm-tls
+
+  # =========================================================================
+  # Annotations Tests
+  # =========================================================================
+  - it: should apply annotations when provided
+    set:
+      ingress:
+        enabled: true
+        annotations:
+          kubernetes.io/tls-acme: "true"
+          cert-manager.io/cluster-issuer: letsencrypt-prod
+        hosts:
+          - host: test.example.com
+            paths:
+              - path: /
+    asserts:
+      - equal:
+          path: metadata.annotations["kubernetes.io/tls-acme"]
+          value: "true"
+      - equal:
+          path: metadata.annotations["cert-manager.io/cluster-issuer"]
+          value: letsencrypt-prod
+
+  - it: should apply nginx-specific annotations
+    set:
+      ingress:
+        enabled: true
+        annotations:
+          nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+          nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+        hosts:
+          - host: test.example.com
+            paths:
+              - path: /
+    asserts:
+      - equal:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/proxy-body-size"]
+          value: "50m"

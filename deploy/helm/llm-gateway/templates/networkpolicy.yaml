@@ -1,0 +1,137 @@
+{{/* ==========================================================================
+LLM Gateway - NetworkPolicy Template
+==========================================================================
+Creates NetworkPolicy resources to control pod-to-pod and external traffic.
+Conditional creation based on networkPolicy.enabled value.
+Supports:
+- Ingress rules (from ingress controller, monitoring, custom)
+- Egress rules (DNS, external HTTPS, Redis, custom)
+- Namespace-based filtering
+- Label-based pod selection
+========================================================================== */}}
+{{- if .Values.networkPolicy.enabled }}
+---
+# =============================================================================
+# Ingress NetworkPolicy - Controls incoming traffic to LLM Gateway pods
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "llm-gateway.fullname" . }}-ingress
+  namespace: {{ include "llm-gateway.namespace" . }}
+  labels:
+    {{- include "llm-gateway.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "llm-gateway.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from within the same namespace
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.port }}
+    {{- if .Values.networkPolicy.ingress.allowIngressController }}
+    # Allow traffic from ingress controller namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingress.ingressControllerNamespace | default "ingress-nginx" }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.port }}
+    {{- end }}
+    {{- if .Values.networkPolicy.ingress.allowMonitoring }}
+    # Allow traffic from monitoring namespace (Prometheus scraping)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingress.monitoringNamespace | default "monitoring" }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.port }}
+    {{- end }}
+    {{- with .Values.networkPolicy.ingress.additionalRules }}
+    # Additional custom ingress rules
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+---
+# =============================================================================
+# Egress NetworkPolicy - Controls outgoing traffic from LLM Gateway pods
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "llm-gateway.fullname" . }}-egress
+  namespace: {{ include "llm-gateway.namespace" . }}
+  labels:
+    {{- include "llm-gateway.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "llm-gateway.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    {{- if .Values.networkPolicy.egress.allowDns }}
+    # Allow DNS resolution (kube-dns/CoreDNS)
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowExternalHttps }}
+    # Allow external HTTPS traffic (LLM API providers: Anthropic, OpenAI)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowRedis }}
+    # Allow traffic to Redis
+    {{- if .Values.redis.enabled }}
+    # Internal Redis (subchart)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    {{- else }}
+    # External Redis - allow all egress on Redis port
+    - ports:
+        - protocol: TCP
+          port: 6379
+    {{- end }}
+    {{- end }}
+    # Allow traffic within the same namespace (inter-service communication)
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8082
+    {{- with .Values.networkPolicy.egress.additionalRules }}
+    # Additional custom egress rules
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

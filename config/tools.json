@@ -1,0 +1,115 @@
+{
+  "tools": [
+    {
+      "name": "search_corpus",
+      "description": "Search the document corpus for relevant content using semantic similarity. Returns the most relevant chunks matching the query.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The search query to find relevant documents."
+          },
+          "top_k": {
+            "type": "integer",
+            "description": "Maximum number of results to return (default: 10).",
+            "default": 10
+          },
+          "collection": {
+            "type": "string",
+            "description": "The document collection to search (default: 'default').",
+            "default": "default"
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "get_chunk",
+      "description": "Retrieve a specific document chunk by its ID. Returns the chunk content and associated metadata.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "chunk_id": {
+            "type": "string",
+            "description": "The unique identifier of the chunk to retrieve."
+          }
+        },
+        "required": ["chunk_id"]
+      }
+    },
+    {
+      "name": "cross_reference",
+      "description": "Generate cross-references for a source chapter using the Cross-Reference Agent. This tool finds related content across the document corpus by traversing the taxonomy graph (Spider Web Model) and generates scholarly annotations with Chicago-style citations.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "book": {
+            "type": "string",
+            "description": "Source book title (e.g., 'Architecture Patterns with Python')."
+          },
+          "chapter": {
+            "type": "integer",
+            "description": "Chapter number (1-indexed)."
+          },
+          "title": {
+            "type": "string",
+            "description": "Chapter title."
+          },
+          "tier": {
+            "type": "integer",
+            "description": "Tier level: 1=Architecture, 2=Implementation, 3=Practices.",
+            "enum": [1, 2, 3]
+          },
+          "content": {
+            "type": "string",
+            "description": "Chapter content text (optional, can be retrieved by agent)."
+          },
+          "keywords": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Extracted keywords from the chapter.",
+            "default": []
+          },
+          "concepts": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Key concepts from the chapter.",
+            "default": []
+          },
+          "max_hops": {
+            "type": "integer",
+            "description": "Maximum traversal depth in the taxonomy graph (default: 3).",
+            "default": 3
+          },
+          "min_similarity": {
+            "type": "number",
+            "description": "Minimum similarity threshold for matches (default: 0.7).",
+            "default": 0.7
+          },
+          "include_tier1": {
+            "type": "boolean",
+            "description": "Include Tier 1 (Architecture Spine) results (default: true).",
+            "default": true
+          },
+          "include_tier2": {
+            "type": "boolean",
+            "description": "Include Tier 2 (Implementation) results (default: true).",
+            "default": true
+          },
+          "include_tier3": {
+            "type": "boolean",
+            "description": "Include Tier 3 (Engineering Practices) results (default: true).",
+            "default": true
+          },
+          "taxonomy_id": {
+            "type": "string",
+            "description": "Taxonomy identifier (default: 'ai-ml').",
+            "default": "ai-ml"
+          }
+        },
+        "required": ["book", "chapter", "title", "tier"]
+      }
+    }
+  ]
+}

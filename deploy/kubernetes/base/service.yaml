@@ -1,0 +1,52 @@
+# =============================================================================
+# LLM Gateway Service
+# =============================================================================
+# ClusterIP service for internal cluster communication.
+# For external access, use an Ingress resource or LoadBalancer service.
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-gateway
+  namespace: llm-services
+  labels:
+    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: llm-document-enhancement
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    description: "Internal service for LLM Gateway"
+spec:
+  # ===========================================================================
+  # Service Type
+  # ===========================================================================
+  # ClusterIP: Internal cluster access only (default)
+  # Use Ingress for external HTTP/HTTPS access
+  type: ClusterIP
+  
+  # ===========================================================================
+  # Ports
+  # ===========================================================================
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+  
+  # ===========================================================================
+  # Selector
+  # ===========================================================================
+  # Must match the labels in the Deployment pod template
+  selector:
+    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/component: gateway
+  
+  # ===========================================================================
+  # Session Affinity (optional)
+  # ===========================================================================
+  # Uncomment for sticky sessions (useful for stateful connections)
+  # sessionAffinity: ClientIP
+  # sessionAffinityConfig:
+  #   clientIP:
+  #     timeoutSeconds: 3600

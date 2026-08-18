@@ -1,0 +1,220 @@
+{{/* ==========================================================================
+LLM Gateway - Deployment Template
+==========================================================================
+Creates the main Deployment resource for the LLM Gateway application.
+Includes:
+- Configurable replicas (disabled when HPA is enabled)
+- Full security context configuration
+- Health probes (liveness, readiness, startup)
+- Resource requests and limits
+- Environment variables from ConfigMap and Secrets
+========================================================================== */}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "llm-gateway.fullname" . }}
+  namespace: {{ include "llm-gateway.namespace" . }}
+  labels:
+    {{- include "llm-gateway.labels" . | nindent 4 }}
+  {{- with .Values.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "llm-gateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Force rolling update when ConfigMap changes
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.secrets.create }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "llm-gateway.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "llm-gateway.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: {{ include "llm-gateway.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            # =================================================================
+            # Application configuration from ConfigMap
+            # Issue 18 Fix (Comp_Static_Analysis_Report_20251203.md):
+            # All env vars must use LLM_GATEWAY_ prefix to match pydantic-settings
+            # config.py line 133: env_prefix = "LLM_GATEWAY_"
+            # =================================================================
+            - name: LLM_GATEWAY_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "llm-gateway.fullname" . }}-config
+                  key: ENVIRONMENT
+            - name: LLM_GATEWAY_LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "llm-gateway.fullname" . }}-config
+                  key: LOG_LEVEL
+            - name: LLM_GATEWAY_WORKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "llm-gateway.fullname" . }}-config
+                  key: WORKERS
+            - name: LLM_GATEWAY_DEFAULT_PROVIDER
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "llm-gateway.fullname" . }}-config
+                  key: DEFAULT_PROVIDER
+            - name: LLM_GATEWAY_DEFAULT_MODEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "llm-gateway.fullname" . }}-config
+                  key: DEFAULT_MODEL
+            - name: LLM_GATEWAY_RATE_LIMIT_REQUESTS_PER_MINUTE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "llm-gateway.fullname" . }}-config
+                  key: RATE_LIMIT_REQUESTS_PER_MINUTE
+            - name: LLM_GATEWAY_RATE_LIMIT_TOKENS_PER_MINUTE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "llm-gateway.fullname" . }}-config
+                  key: RATE_LIMIT_TOKENS_PER_MINUTE
+            - name: LLM_GATEWAY_SESSION_TTL_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "llm-gateway.fullname" . }}-config
+                  key: SESSION_TTL_SECONDS
+            - name: LLM_GATEWAY_MAX_CONTEXT_LENGTH
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "llm-gateway.fullname" . }}-config
+                  key: MAX_CONTEXT_LENGTH
+            # Redis URL
+            - name: LLM_GATEWAY_REDIS_URL
+              value: {{ include "llm-gateway.redisUrl" . | quote }}
+            {{- /* Issue 19 Fix: Redis password via secretKeyRef (not embedded in URL) */ -}}
+            {{- if and .Values.redis.enabled .Values.redis.auth.enabled }}
+            - name: LLM_GATEWAY_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.auth.existingSecret | default (printf "%s-redis" .Release.Name) }}
+                  key: {{ .Values.redis.auth.existingSecretPasswordKey | default "redis-password" }}
+            {{- end }}
+            # Service discovery URLs
+            - name: LLM_GATEWAY_SEMANTIC_SEARCH_URL
+              value: {{ include "llm-gateway.semanticSearchUrl" . | quote }}
+            - name: LLM_GATEWAY_AI_AGENTS_URL
+              value: {{ include "llm-gateway.aiAgentsUrl" . | quote }}
+            {{- if .Values.config.ollamaBaseUrl }}
+            - name: LLM_GATEWAY_OLLAMA_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "llm-gateway.fullname" . }}-config
+                  key: OLLAMA_BASE_URL
+            {{- end }}
+            # API Keys from Secret
+            {{- if or .Values.secrets.create .Values.secrets.existingSecret }}
+            - name: LLM_GATEWAY_ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.secrets.existingSecret }}{{ .Values.secrets.existingSecret }}{{ else }}{{ include "llm-gateway.fullname" . }}-secrets{{ end }}
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: LLM_GATEWAY_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ if .Values.secrets.existingSecret }}{{ .Values.secrets.existingSecret }}{{ else }}{{ include "llm-gateway.fullname" . }}-secrets{{ end }}
+                  key: OPENAI_API_KEY
+                  optional: true
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or .Values.extraVolumeMounts (and .Values.persistence .Values.persistence.enabled) }}
+          volumeMounts:
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if and .Values.persistence .Values.persistence.enabled }}
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath | default "/app/data" }}
+            {{- end }}
+          {{- end }}
+      {{- if or .Values.extraVolumes (and .Values.persistence .Values.persistence.enabled) }}
+      volumes:
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if and .Values.persistence .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-data" (include "llm-gateway.fullname" .)) }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml .Values.topologySpreadConstraints | nindent 8 }}
+      {{- end }}
+      {{- if .Values.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- end }}

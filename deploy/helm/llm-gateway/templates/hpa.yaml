@@ -1,0 +1,85 @@
+{{/* ==========================================================================
+LLM Gateway - Horizontal Pod Autoscaler Template
+==========================================================================
+Creates an HPA resource for automatic scaling based on CPU/Memory metrics.
+Conditional creation based on autoscaling.enabled value.
+Supports:
+- CPU utilization targeting
+- Memory utilization targeting
+- Custom metrics (when configured)
+- Scale behavior configuration
+
+Issue 31 Fix (Comp_Static_Analysis_Report_20251203.md):
+Guard against creating HPA with empty metrics array.
+At least one metric (CPU, Memory, or custom) must be configured.
+========================================================================== */}}
+{{- if .Values.autoscaling.enabled }}
+{{- $hasCPU := .Values.autoscaling.targetCPUUtilizationPercentage }}
+{{- $hasMem := .Values.autoscaling.targetMemoryUtilizationPercentage }}
+{{- $hasCustom := .Values.autoscaling.customMetrics }}
+{{- if or $hasCPU $hasMem $hasCustom }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "llm-gateway.fullname" . }}
+  namespace: {{ include "llm-gateway.namespace" . }}
+  labels:
+    {{- include "llm-gateway.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "llm-gateway.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+    {{- with .Values.autoscaling.customMetrics }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- if .Values.autoscaling.behavior }}
+  behavior:
+    {{- with .Values.autoscaling.behavior.scaleDown }}
+    scaleDown:
+      {{- if .stabilizationWindowSeconds }}
+      stabilizationWindowSeconds: {{ .stabilizationWindowSeconds }}
+      {{- end }}
+      {{- with .policies }}
+      policies:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .selectPolicy }}
+      selectPolicy: {{ .selectPolicy }}
+      {{- end }}
+    {{- end }}
+    {{- with .Values.autoscaling.behavior.scaleUp }}
+    scaleUp:
+      {{- if .stabilizationWindowSeconds }}
+      stabilizationWindowSeconds: {{ .stabilizationWindowSeconds }}
+      {{- end }}
+      {{- with .policies }}
+      policies:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .selectPolicy }}
+      selectPolicy: {{ .selectPolicy }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}

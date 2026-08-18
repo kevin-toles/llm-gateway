@@ -1,0 +1,500 @@
+# =============================================================================
+# LLM Gateway - Continuous Integration Workflow
+# =============================================================================
+# Triggers: push to main/develop, pull requests to main
+# Jobs: lint, test, integration-tests, security, build (with helm-unittest)
+# WBS 3.5.4.2: GitHub Actions Integration Tests
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Manual trigger support
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  PYTHON_VERSION: '3.11'
+
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ===========================================================================
+  # Lint Job - Code Quality Checks
+  # ===========================================================================
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install linting tools
+        run: |
+          pip install --upgrade pip
+          pip install ruff mypy
+          pip install -r requirements.txt
+
+      - name: Run Ruff (linting)
+        run: ruff check src/ --output-format=github
+
+      - name: Run Ruff (formatting)
+        run: ruff format --check src/
+
+      - name: Run MyPy (type checking)
+        run: mypy src/
+
+  # ===========================================================================
+  # Test Job - Unit Tests (Fast Feedback)
+  # ===========================================================================
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run unit tests with coverage
+        run: |
+          pytest tests/unit -v \
+            --cov=src \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --junitxml=unit-test-results.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload unit test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: unit-test-results.xml
+
+  # ===========================================================================
+  # OpenAPI Documentation Job (WBS 3.6.1.1.4)
+  # ===========================================================================
+  openapi:
+    name: OpenAPI Spec Export
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      # WBS 3.6.1.1.2: Export OpenAPI spec
+      - name: Export OpenAPI specification
+        run: python scripts/export_openapi.py
+
+      # WBS 3.6.1.1.4: Upload spec as artifact
+      - name: Upload OpenAPI specification
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec
+          path: |
+            docs/openapi.json
+            docs/openapi.yaml
+          retention-days: 90
+
+      # Check for spec changes (for documentation tracking)
+      - name: Check for OpenAPI spec changes
+        run: |
+          if git diff --quiet docs/openapi.json docs/openapi.yaml 2>/dev/null; then
+            echo "✅ OpenAPI spec unchanged"
+          else
+            echo "⚠️ OpenAPI spec has changed - consider committing updated docs"
+            git diff docs/openapi.json docs/openapi.yaml || true
+          fi
+
+  # ===========================================================================
+  # Contract Tests Job - OpenAPI Contract Validation (WBS 3.6.1.2)
+  # ===========================================================================
+  contract-tests:
+    name: Contract Tests
+    needs: [openapi]  # Run after OpenAPI export
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      # WBS 3.6.1.2.3: Run contract tests
+      - name: Run contract tests
+        run: |
+          pytest tests/contract -v \
+            --junitxml=contract-test-results.xml \
+            -m contract
+
+      - name: Upload contract test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contract-test-results
+          path: contract-test-results.xml
+          retention-days: 30
+
+  # ===========================================================================
+  # Integration Tests Job - Docker Compose Full Stack (WBS 3.5.4.2)
+  # ===========================================================================
+  integration-tests:
+    name: Integration Tests
+    needs: [test]  # Run after unit tests pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 20  # Prevent hanging tests
+
+    steps:
+      # WBS 3.5.4.2.1: Checkout code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # WBS 3.5.4.2.2: Set up Docker Buildx for multi-platform support
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # WBS 3.5.4.2.3: Start services with docker-compose
+      - name: Start services
+        working-directory: deploy/docker
+        run: |
+          echo "=== Building and starting services ==="
+          docker compose -f docker-compose.test.yml up -d --build \
+            redis-test \
+            llm-gateway-test
+          
+          echo "=== Services started ==="
+          docker compose -f docker-compose.test.yml ps
+
+      # WBS 3.5.4.2.4: Wait for services to be healthy
+      - name: Wait for services to be healthy
+        working-directory: deploy/docker
+        run: |
+          echo "=== Waiting for Redis to be healthy ==="
+          timeout 60 sh -c 'until docker compose -f docker-compose.test.yml exec -T redis-test redis-cli ping 2>/dev/null; do sleep 2; done'
+          
+          echo "=== Waiting for Gateway to be healthy ==="
+          timeout 120 sh -c 'until docker compose -f docker-compose.test.yml exec -T llm-gateway-test curl -sf http://localhost:8080/health 2>/dev/null; do sleep 3; done'
+          
+          echo "=== All services healthy ==="
+          docker compose -f docker-compose.test.yml ps
+
+      # WBS 3.5.4.2.5: Run integration tests
+      - name: Run integration tests
+        working-directory: deploy/docker
+        run: |
+          echo "=== Running integration tests ==="
+          docker compose -f docker-compose.test.yml run --rm \
+            -e CI=true \
+            tests \
+            pytest tests/integration -v --tb=short \
+              --junitxml=/app/test-results/integration-junit.xml \
+              --cov=src \
+              --cov-report=xml:/app/test-results/coverage.xml \
+              --cov-report=term-missing \
+              -x  # Stop on first failure for faster feedback
+
+      # WBS 3.5.4.2.6: Collect test results
+      - name: Collect test results
+        if: always()
+        working-directory: deploy/docker
+        run: |
+          echo "=== Copying test results ==="
+          mkdir -p ../../test-results
+          docker compose -f docker-compose.test.yml cp \
+            tests:/app/test-results/. ../../test-results/ 2>/dev/null || true
+          
+          ls -la ../../test-results/ || echo "No test results found"
+
+      # WBS 3.5.4.2.6: Upload test results artifact
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: test-results/
+          retention-days: 30
+
+      # WBS 3.5.4.2.7: Tear down services
+      - name: Tear down services
+        if: always()
+        working-directory: deploy/docker
+        run: |
+          echo "=== Tearing down services ==="
+          docker compose -f docker-compose.test.yml logs > ../../docker-logs.txt 2>&1 || true
+          docker compose -f docker-compose.test.yml down -v --remove-orphans
+          echo "=== Cleanup complete ==="
+
+      # Upload Docker logs for debugging
+      - name: Upload Docker logs
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: docker-logs
+          path: docker-logs.txt
+          retention-days: 7
+
+  # ===========================================================================
+  # SonarQube Job - Code Quality & Security Analysis
+  # ===========================================================================
+  sonarqube:
+    name: SonarQube Analysis
+    needs: [test]  # Needs test coverage reports
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for SonarQube blame data
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: unit-test-results
+          path: .
+        continue-on-error: true  # Don't fail if artifact doesn't exist
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run tests with coverage (for SonarQube)
+        run: |
+          pytest tests/unit -v \
+            --cov=src \
+            --cov-report=xml \
+            --junitxml=test-results.xml
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: SonarQube Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@master
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # ===========================================================================
+  # Security Job - Vulnerability Scanning
+  # ===========================================================================
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # ===========================================================================
+  # Helm Lint Job - Chart Validation
+  # ===========================================================================
+  helm-lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.14.0'
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest
+
+      - name: Lint Helm chart
+        run: |
+          helm lint deploy/helm/llm-gateway
+          helm lint deploy/helm/llm-gateway -f deploy/helm/llm-gateway/values-dev.yaml
+          helm lint deploy/helm/llm-gateway -f deploy/helm/llm-gateway/values-staging.yaml
+          helm lint deploy/helm/llm-gateway -f deploy/helm/llm-gateway/values-prod.yaml
+
+      - name: Run Helm unit tests
+        run: helm unittest deploy/helm/llm-gateway
+
+      - name: Validate templates with kubeconform
+        run: |
+          # Issue 21 Fix: Install kubeconform with checksum verification
+          # Supply chain security: verify binary integrity before execution
+          KUBECONFORM_VERSION="v0.7.0"
+          KUBECONFORM_CHECKSUM="c31518ddd122663b3f3aa874cfe8178cb0988de944f29c74a0b9260920d115d3"
+          
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" -o kubeconform.tar.gz
+          
+          # Verify checksum before extracting
+          echo "${KUBECONFORM_CHECKSUM}  kubeconform.tar.gz" | sha256sum -c -
+          
+          tar xzf kubeconform.tar.gz
+          chmod +x kubeconform
+          rm kubeconform.tar.gz
+
+          # Validate all environments
+          for env in dev staging prod; do
+            echo "=== Validating ${env} environment ==="
+            helm template test deploy/helm/llm-gateway \
+              -f deploy/helm/llm-gateway/values-${env}.yaml \
+              --skip-tests | ./kubeconform -summary -strict -ignore-missing-schemas
+          done
+
+  # ===========================================================================
+  # Build Job - Docker Image Build & Push
+  # ===========================================================================
+  build:
+    name: Build & Push
+    needs: [lint, test, integration-tests, contract-tests, openapi, security, sonarqube, helm-lint]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # For cosign signing
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push Docker image
+        id: build-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ github.ref_name }}
+
+      - name: Generate SBOM
+        if: github.event_name != 'pull_request'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Upload SBOM
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.spdx.json

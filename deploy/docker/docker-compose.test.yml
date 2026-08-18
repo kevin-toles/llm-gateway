@@ -1,0 +1,204 @@
+# ==============================================================================
+# LLM Gateway - Docker Compose CI Test Environment
+# ==============================================================================
+# Integration test environment optimized for CI/CD pipelines
+# WBS 3.5.4.1: Docker Compose for CI
+#
+# Features:
+# - Ephemeral services (no persistent volumes)
+# - Proper exit codes for CI (WBS 3.5.4.1.4)
+# - Health check waits before tests run (WBS 3.5.4.1.5)
+# - Test runner service with JUnit output (WBS 3.5.4.1.3)
+#
+# Usage:
+#   docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
+#
+# Per GUIDELINES (Buelta pp. 340): Docker's isolation enables reproducible test
+# environments that mirror production configurations.
+# Per GUIDELINES (Buelta pp. 350): Three-tier testing - unit, integration, system.
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # Redis - Ephemeral Test Instance (WBS 3.5.4.1.2)
+  # ============================================================================
+  redis-test:
+    image: redis:7-alpine
+    container_name: llm-gateway-redis-ci
+    # No volumes - ephemeral for CI (WBS 3.5.4.1.2)
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 2s
+    networks:
+      - llm-ci-network
+    # No port exposure - internal only for security
+
+  # ============================================================================
+  # Semantic Search Stub - Mock Service for Testing
+  # ============================================================================
+  semantic-search-test:
+    image: ghcr.io/kevin-toles/semantic-search-service:latest
+    container_name: semantic-search-ci
+    environment:
+      SEMANTIC_SEARCH_ENV: test
+      SEMANTIC_SEARCH_PORT: "8081"
+      SEMANTIC_SEARCH_LOG_LEVEL: WARNING
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8081/health", "||", "exit", "0"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - llm-ci-network
+    # Fallback to stub if image not available
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ============================================================================
+  # AI Agents Stub - Mock Service for Testing
+  # ============================================================================
+  ai-agents-test:
+    image: ghcr.io/kevin-toles/ai-agents-service:latest
+    container_name: ai-agents-ci
+    environment:
+      AI_AGENTS_ENV: test
+      AI_AGENTS_PORT: "8082"
+      AI_AGENTS_LOG_LEVEL: WARNING
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8082/health", "||", "exit", "0"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - llm-ci-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ============================================================================
+  # LLM Gateway - Test Instance (WBS 3.5.4.1.2)
+  # ============================================================================
+  llm-gateway-test:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        BUILD_DATE: ${BUILD_DATE:-}
+        VCS_REF: ${VCS_REF:-}
+        VERSION: ${VERSION:-ci-test}
+    container_name: llm-gateway-ci
+    environment:
+      LLM_GATEWAY_ENV: test
+      LLM_GATEWAY_PORT: "8080"
+      LLM_GATEWAY_LOG_LEVEL: WARNING
+      LLM_GATEWAY_WORKERS: "1"
+      LLM_GATEWAY_REDIS_URL: redis://redis-test:6379
+      LLM_GATEWAY_SEMANTIC_SEARCH_URL: http://semantic-search-test:8081
+      LLM_GATEWAY_AI_AGENTS_URL: http://ai-agents-test:8082
+      LLM_GATEWAY_DEFAULT_PROVIDER: anthropic
+      LLM_GATEWAY_DEFAULT_MODEL: claude-3-sonnet-20240229
+      LLM_GATEWAY_RATE_LIMIT_REQUESTS_PER_MINUTE: "1000"
+      LLM_GATEWAY_SESSION_TTL_SECONDS: "300"
+      # Test API keys (mock/test values - not real credentials)
+      LLM_GATEWAY_ANTHROPIC_API_KEY: test-anthropic-key-ci
+      LLM_GATEWAY_OPENAI_API_KEY: test-openai-key-ci
+    depends_on:
+      redis-test:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 15s
+    networks:
+      - llm-ci-network
+    # No TTY for CI/CD - enables proper exit codes (WBS 3.5.4.1.4)
+    tty: false
+    stdin_open: false
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # ============================================================================
+  # Test Runner Service (WBS 3.5.4.1.3)
+  # ============================================================================
+  tests:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.dev
+    container_name: llm-gateway-test-runner
+    environment:
+      # Test configuration
+      PYTHONPATH: /app/src
+      PYTEST_ADDOPTS: "-v --tb=short -x"
+      
+      # Point to test services
+      LLM_GATEWAY_URL: http://llm-gateway-test:8080
+      LLM_GATEWAY_REDIS_URL: redis://redis-test:6379
+      SEMANTIC_SEARCH_URL: http://semantic-search-test:8081
+      AI_AGENTS_URL: http://ai-agents-test:8082
+      
+      # Test mode
+      LLM_GATEWAY_ENV: test
+      
+      # CI/CD settings
+      CI: "true"
+    volumes:
+      # Mount test files (read-only for security)
+      - ../../tests:/app/tests:ro
+      - ../../src:/app/src:ro
+      - ../../pyproject.toml:/app/pyproject.toml:ro
+      
+      # Test results output (writable)
+      - test-results:/app/test-results
+    # Wait for all services to be healthy (WBS 3.5.4.1.5)
+    depends_on:
+      llm-gateway-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    networks:
+      - llm-ci-network
+    # No TTY for CI/CD - enables proper exit codes (WBS 3.5.4.1.4)
+    tty: false
+    stdin_open: false
+    # Run tests and exit with proper code
+    command: >
+      sh -c "
+        echo '=== Waiting for services to stabilize ===' &&
+        sleep 5 &&
+        echo '=== Running integration tests ===' &&
+        pytest tests/integration -v --tb=short -x \
+          --junitxml=/app/test-results/integration-junit.xml \
+          --cov=src \
+          --cov-report=xml:/app/test-results/coverage.xml \
+          --cov-report=term-missing &&
+        echo '=== Tests completed ===' 
+      "
+
+# ==============================================================================
+# Networks - Isolated CI Network
+# ==============================================================================
+networks:
+  llm-ci-network:
+    name: llm-ci-network
+    driver: bridge
+
+# ==============================================================================
+# Volumes - Test Results (ephemeral, WBS 3.5.4.1.2)
+# ==============================================================================
+volumes:
+  test-results:
+    driver: local
